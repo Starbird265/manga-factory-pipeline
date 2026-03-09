@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MangaFactory Live Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-color: #f8fafc;
+            --accent-color: #38bdf8;
+            --success-color: #22c55e;
+            --error-color: #ef4444;
+        }
+        body {
+            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--error-color);
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-dot.online {
+            background-color: var(--success-color);
+            box-shadow: 0 0 10px var(--success-color);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #334155;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 1.1rem;
+            color: var(--accent-color);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .stats-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        .progress-container {
+            margin-top: 20px;
+        }
+        .progress-bar {
+            height: 8px;
+            background-color: #334155;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: var(--accent-color);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        #log-container {
+            background-color: #020617;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            height: 300px;
+            overflow-y: auto;
+            color: #94a3b8;
+        }
+        .log-entry {
+            margin-bottom: 4px;
+            border-left: 2px solid transparent;
+            padding-left: 8px;
+        }
+        .log-entry.info { border-left-color: var(--accent-color); }
+        .log-entry.success { border-left-color: var(--success-color); }
+        .log-entry.error { border-left-color: var(--error-color); }
+        
+        .live-preview {
+            width: 100%;
+            height: 400px;
+            object-fit: contain;
+            background-color: #020617;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>MangaFactory <span style="font-weight: 300; opacity: 0.7;">Dashboard</span></h1>
+        <div>
+            <span id="status-dot" class="status-dot"></span>
+            <span id="status-text">Disconnected</span>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Current Task</h2>
+            <div id="current-manga" class="stats-value" style="font-size: 1.5rem;">None</div>
+            <div id="current-chapter">Chapter --</div>
+            <div class="progress-container">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span>Progress</span>
+                    <span id="progress-percent">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Statistics</h2>
+            <div style="display: flex; justify-content: space-around; text-align: center;">
+                <div>
+                    <div id="stat-images" class="stats-value">0</div>
+                    <div>Images</div>
+                </div>
+                <div>
+                    <div id="stat-panels" class="stats-value">0</div>
+                    <div>Panels</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="grid-column: span 2;">
+            <h2>Live Log</h2>
+            <div id="log-container"></div>
+        </div>
+
+        <div class="card" style="grid-column: span 2;">
+            <h2>Last Processed Panel</h2>
+            <img id="live-preview" class="live-preview" src=" " alt="Live Preview">
+        </div>
+    </div>
+
+    <script>
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const logContainer = document.getElementById('log-container');
+        
+        ws.onopen = () => {
+            statusDot.classList.add('online');
+            statusText.innerText = 'Online';
+            addLog('Connected to MangaFactory engine', 'success');
+        };
+
+        ws.onclose = () => {
+            statusDot.classList.remove('online');
+            statusText.innerText = 'Disconnected';
+            addLog('Lost connection to engine', 'error');
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            updateUI(data);
+        };
+
+        function updateUI(data) {
+            if (data.manga) document.getElementById('current-manga').innerText = data.manga;
+            if (data.chapter) document.getElementById('current-chapter').innerText = `Chapter ${data.chapter}`;
+            if (data.progress) {
+                document.getElementById('progress-percent').innerText = `${data.progress}%`;
+                document.getElementById('progress-fill').style.width = `${data.progress}%`;
+            }
+            if (data.images) document.getElementById('stat-images').innerText = data.images;
+            if (data.panels) document.getElementById('stat-panels').innerText = data.panels;
+            if (data.log) addLog(data.log, data.type || 'info');
+            if (data.preview) document.getElementById('live-preview').src = data.preview;
+        }
+
+        function addLog(message, type) {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerText = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>

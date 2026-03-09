@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environments
+venv/
+manga_venv/
+venv_backup/
+manga_factory_clean/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+
+# Archive (local only)
+_archive/
+
+# Large downloaded manga data — NOT committed
+MangaFactory/
+MangaFactory_CLI/
+00_raw/
+01_clean/
+02_stitched/
+03_text/
+manga_pdfs/
+ml_training_data/
+test_out/
+test_output/
+shinobi/
+black/
+bubbles/
+filtered/
+fragments/
+other/
+panels/
+strips/
+
+# ML Models (large binaries)
+manga_pipeline/ml_models/
+manga_pipeline/__pycache__/
+manga_pipeline/topmanhua_full_test/
+manga_pipeline/manga_pdfs/
+manga_pipeline/*.log
+
+# Script runtime data
+script/
+.qodo/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp

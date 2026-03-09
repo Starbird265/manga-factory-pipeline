@@ -1,0 +1,12 @@
+PyQt6
+opencv-python
+numpy
+pytesseract
+Pillow
+requests
+beautifulsoup4
+easyocr
+text2emotion
+transformers
+peft
+img2pdf
