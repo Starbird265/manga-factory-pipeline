@@ -7,7 +7,12 @@ Converts complete stitched manga strips to PDF format
 import os
 import logging
 from pathlib import Path
-import img2pdf
+try:
+    import img2pdf
+    IMG2PDF_AVAILABLE = True
+except ImportError:
+    img2pdf = None
+    IMG2PDF_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +51,10 @@ def generate_pdf_from_strip(strip_image_path, output_pdf_path, manga_name=None, 
         bool: True if successful, False otherwise
     """
     try:
+        if not IMG2PDF_AVAILABLE:
+            logger.error("img2pdf not installed. Install with: pip install img2pdf")
+            return False
+
         strip_path = Path(strip_image_path)
         pdf_path = Path(output_pdf_path)
         

@@ -10,7 +10,15 @@ from typing import List, Optional, Tuple
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutError, NoSuchElementException, ElementClickInterceptedException
+try:
+    from selenium.common.exceptions import TimeoutException as TimeoutError, NoSuchElementException, ElementClickInterceptedException
+except ImportError:
+    try:
+        from selenium.common.exceptions import TimeoutError, NoSuchElementException, ElementClickInterceptedException
+    except ImportError:
+        TimeoutError = Exception
+        NoSuchElementException = Exception
+        ElementClickInterceptedException = Exception
 
 try:
     from playwright.sync_api import Page, Locator, TimeoutError as PlaywrightTimeout

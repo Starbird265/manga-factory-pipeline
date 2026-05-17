@@ -142,6 +142,12 @@ class EnhancedSmartDownloader:
         self.intercepted_images = []
         self.use_request_interception = True
         
+        # ML Management Systems Integration
+        from ml_proxy_manager import MLProxyManager
+        from smart_pipeline_manager import SmartPipelineManager
+        self.proxy_manager = MLProxyManager()
+        self.pipeline_manager = SmartPipelineManager()
+        
         # Stats
         self.stats = {
             'playwright_success': 0,
@@ -238,6 +244,17 @@ class EnhancedSmartDownloader:
             # Setup request interception for image capture
             if self.use_request_interception:
                 self._setup_request_interception()
+                
+            # Get an optimal proxy if available
+            self.current_proxy = self.proxy_manager.get_best_proxy()
+            if self.current_proxy:
+                logger.info(f"🛡️ Routed through ML Proxy: {self.current_proxy}")
+                # Playwright doesn't easily set proxy per-page mid-flight without context
+                # To be precise, Playwright needs proxy defined at browser launch or context creation
+                # Simplified injection for now via headers or restarting context if highly required
+                # For robust proxy support, we'd rebuild context:
+                # self.context = self.browser.new_context(proxy={"server": self.current_proxy})
+                # self.page = self.context.new_page()
             
             return True
             
@@ -297,11 +314,44 @@ class EnhancedSmartDownloader:
             'cloudflare_encountered': False
         }
         
-        # Try Playwright first (Layer 1)
-        logger.info("🚀 Attempting download with Playwright + Stealth...")
-        playwright_result = self._try_playwright_download(
-            manga_name, chapter, website, chapter_url
-        )
+        # Ask the Smart Pipeline Manager for the best strategy for this domain
+        domain = chapter_url if chapter_url else "unknown"
+        strategy = self.pipeline_manager.get_strategy(domain)
+        best_scraper = strategy.get('best_scraper', 'playwright')
+        delay = strategy.get('delay_needed', 1.0)
+        
+        # Apply the learned delay
+        self.min_delay = delay
+        self.max_delay = delay * 2.0
+        
+        if best_scraper == 'requests':
+            # Skip heavy browser lifting entirely if ML says requests works
+            playwright_result = self._try_requests_download(manga_name, chapter, chapter_url)
+            if playwright_result['success']:
+                self.pipeline_manager.record_scraper_result(domain, 'requests', True, 0.5)
+                return playwright_result
+            else:
+                self.pipeline_manager.record_scraper_result(domain, 'requests', False, 0.5)
+                # Escalate
+                best_scraper = 'playwright'
+
+        # Try Playwright first (Layer 1) or if ML suggested
+        if best_scraper == 'playwright':
+            logger.info("🚀 Attempting download with Playwright + Stealth...")
+            playwright_result = self._try_playwright_download(
+                manga_name, chapter, website, chapter_url
+            )
+            
+            if playwright_result['success']:
+                self.stats['playwright_success'] += 1
+                self.pipeline_manager.record_scraper_result(domain, 'playwright', True, 5.0)
+                if self.current_proxy:
+                    self.proxy_manager.report_result(self.current_proxy, True, 2.0)
+                return playwright_result
+            else:
+                self.pipeline_manager.record_scraper_result(domain, 'playwright', False, 5.0)
+                if self.current_proxy:
+                    self.proxy_manager.report_result(self.current_proxy, False, 10.0, cloudflare_blocked=playwright_result.get('cloudflare_encountered', False))
         
         if playwright_result['success']:
             self.stats['playwright_success'] += 1
@@ -324,6 +374,25 @@ class EnhancedSmartDownloader:
         logger.error("❌ All download methods failed")
         return result
     
+    def _try_requests_download(self, manga_name: str, chapter: int, chapter_url: str) -> Dict:
+        """New ultra-fast pathway for unprotected sites, directed by Pipeline Manager."""
+        result = {'success': False, 'image_urls': [], 'method': 'requests'}
+        try:
+            import requests
+            headers = {"User-Agent": self._get_random_user_agent()}
+            r = requests.get(chapter_url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                from ml_site_learner import MLSiteLearner
+                images = MLSiteLearner.analyze_dom_for_manga_images(r.text, chapter_url)
+                if images:
+                    result['success'] = True
+                    result['image_urls'] = images
+                    logger.info(f"⚡ FAST TRACK: ML extracted {len(images)} images via RAW requests.")
+        except Exception as e:
+            logger.debug(f"Requests fast track failed: {e}")
+            
+        return result
+
     def _try_playwright_download(self, manga_name: str, chapter: int,
                                  website: Optional[str],
                                  chapter_url: Optional[str]) -> Dict:
@@ -412,26 +481,38 @@ class EnhancedSmartDownloader:
             image_urls.extend(self._extract_images_playwright())
             
             if image_urls:
-                # Store only valid images and filter duplicates
-                seen = set()
-                valid_urls = []
-                for url in image_urls:
-                    if url not in seen and self._is_valid_image_url(url):
-                        valid_urls.append(url)
-                        seen.add(url)
+                # Validate and filter
+                valid_urls = [u for u in image_urls if self._is_valid_image_url(u)]
                 
-                result['success'] = len(valid_urls) > 0
-                result['image_urls'] = valid_urls
-                result['chapter_url'] = self.page.url
-                logger.info(f"✅ Found {len(valid_urls)} valid images via Playwright")
+                # If no standard images found by selectors, fallback to the ML Learner
+                if not valid_urls:
+                    logger.info("🤖 Standard selectors failed. Engaging ML Site Learner on Playwright DOM...")
+                    html_content = self.page.content()
+                    from ml_site_learner import MLSiteLearner
+                    valid_urls = MLSiteLearner.analyze_dom_for_manga_images(html_content, self.page.url)
+
+                if valid_urls:
+                    # Filter duplicates
+                    seen = set()
+                    final = []
+                    for u in valid_urls:
+                        if u not in seen:
+                            final.append(u)
+                            seen.add(u)
+                    
+                    result['success'] = True
+                    result['image_urls'] = final
+                    result['chapter_url'] = self.page.url
+                    logger.info(f"✅ Found {len(final)} valid images via Playwright")
+                else:
+                    logger.warning("⚠️ No images found via DOM or ML Learner.")
+                    try:
+                        self.page.screenshot(path='error_playwright.png')
+                    except: pass
             else:
-                logger.warning("⚠️ No images found")
-                # Take diagnostic screenshot
                 try:
                     self.page.screenshot(path='error_playwright.png')
-                    logger.info("📸 Diagnostic screenshot saved as error_playwright.png")
-                except:
-                    pass
+                except: pass
             
         except Exception as e:
             logger.error(f"Playwright download error: {e}")

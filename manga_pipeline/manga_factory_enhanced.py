@@ -43,7 +43,7 @@ else:
         pytesseract.pytesseract.tesseract_cmd = _found_tess
     else:
         pytesseract.pytesseract.tesseract_cmd = '/opt/homebrew/bin/tesseract'
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 Image.MAX_IMAGE_PIXELS = None
 import glob
 from pathlib import Path
@@ -118,16 +118,16 @@ except (ImportError, ModuleNotFoundError):
     except (ImportError, ModuleNotFoundError):
         ENHANCED_OCR_AVAILABLE = False
 
-# Try import new character learner
+# Character learner removed (ML training not needed)
+LEARNER_AVAILABLE = False
+
+# ── Unified Bypass Engine (auto-escalation + proxy rotation) ────────────
 try:
-    from .character_learner import CharacterLearner, SceneAnalyzer
-    LEARNER_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
-    try:
-        from character_learner import CharacterLearner, SceneAnalyzer
-        LEARNER_AVAILABLE = True
-    except (ImportError, ModuleNotFoundError):
-        LEARNER_AVAILABLE = False
+    from unified_bypass_engine import UnifiedBypassEngine
+    UNIFIED_BYPASS_AVAILABLE = True
+except ImportError:
+    UnifiedBypassEngine = None
+    UNIFIED_BYPASS_AVAILABLE = False
 
 # PDF Generator for creating PDFs from stitched strips
 try:
@@ -140,110 +140,32 @@ except (ImportError, ModuleNotFoundError):
     except (ImportError, ModuleNotFoundError):
         PDF_GENERATOR_AVAILABLE = False
 
-# License validation system
-class LicenseValidator:
-    def __init__(self):
-        self.license_key = None
-        self.machine_id = self._get_machine_id()
-        self.license_file = Path.home() / '.manga_factory_license'
-        
-    def _get_machine_id(self):
-        """Generate unique machine identifier"""
-        try:
-            import uuid
-            mac = uuid.getnode()
-            hostname = os.uname().nodename if hasattr(os, 'uname') else 'unknown'
-            combined = f"{mac}-{hostname}"
-            return hashlib.sha256(combined.encode()).hexdigest()[:16]
-        except Exception:
-            return hashlib.sha256('fallback-machine-id'.encode()).hexdigest()[:16]
-    
-    def _validate_license_format(self, license_key):
-        """Validate license key format and signature"""
-        try:
-            if not license_key or len(license_key) != 32:
-                return False
-            
-            # Extract components from license key
-            machine_part = license_key[:8]
-            date_part = license_key[8:16] 
-            signature = license_key[16:32]
-            
-            # Verify machine binding
-            expected_machine = self.machine_id[:8]
-            if machine_part != expected_machine:
-                return False
-                
-            # Verify signature
-            payload = f"{machine_part}{date_part}manga_factory_pro"
-            expected_sig = hashlib.md5(payload.encode()).hexdigest()[:16]
-            
-            return signature == expected_sig
-            
-        except Exception:
-            return False
-    
-    def _check_license_expiry(self, license_key):
-        """Check if license is still valid (not expired)"""
-        try:
-            date_part = license_key[8:16]
-            # Convert hex to timestamp
-            timestamp = int(date_part, 16)
-            license_date = datetime.fromtimestamp(timestamp)
-            
-            # Check if license is within valid period (1 year from issue)
-            expiry_date = license_date + timedelta(days=365)
-            return datetime.now() < expiry_date
-            
-        except Exception:
-            return False
-    
-    def validate_license(self, license_key=None):
-        """Main license validation function"""
-        if license_key:
-            self.license_key = license_key
-        elif self.license_file.exists():
-            try:
-                with open(self.license_file, 'r') as f:
-                    self.license_key = f.read().strip()
-            except Exception:
-                return False, "Cannot read license file"
-        else:
-            return False, "No license key provided"
-        
-        if not self.license_key:
-            return False, "Empty license key"
-            
-        if not self._validate_license_format(self.license_key):
-            return False, "Invalid license key format or machine binding"
-            
-        if not self._check_license_expiry(self.license_key):
-            return False, "License has expired"
-            
-        return True, "License valid"
-    
-    def save_license(self, license_key):
-        """Save license key to file"""
-        try:
-            with open(self.license_file, 'w') as f:
-                f.write(license_key)
-            return True
-        except Exception:
-            return False
-    
-    def generate_license_for_machine(self):
-        """Generate a valid license for current machine (for development/testing)"""
-        machine_part = self.machine_id[:8]
-        timestamp = int(datetime.now().timestamp())
-        date_part = f"{timestamp:08x}"
-        
-        payload = f"{machine_part}{date_part}manga_factory_pro"
-        signature = hashlib.md5(payload.encode()).hexdigest()[:16]
-        
-        return f"{machine_part}{date_part}{signature}"
+# ── ML Intelligence Modules ─────────────────────────────────────────────────
+# SmartPipelineManager — remembers the best scraper & processing hints per domain
+try:
+    from smart_pipeline_manager import SmartPipelineManager
+    SMART_PIPELINE_AVAILABLE = True
+except ImportError:
+    SmartPipelineManager = None
+    SMART_PIPELINE_AVAILABLE = False
 
-# Global license validator
-license_validator = LicenseValidator()
+# MLProxyManager — UCB-based proxy rotation to evade bans
+try:
+    from ml_proxy_manager import MLProxyManager
+    ML_PROXY_AVAILABLE = True
+except ImportError:
+    MLProxyManager = None
+    ML_PROXY_AVAILABLE = False
+
+# MLSiteLearner — heuristic DOM analyser for unknown sites
+try:
+    from ml_site_learner import MLSiteLearner
+    ML_SITE_LEARNER_AVAILABLE = True
+except ImportError:
+    MLSiteLearner = None
+    ML_SITE_LEARNER_AVAILABLE = False
+
+
 
 # Advanced stitching functionality (simplified inline)
 class SimpleStitching:
@@ -637,6 +559,12 @@ class EnhancedMangaFactory:
         # Load configuration
         self.config = self._load_config(config_file)
         
+        # Shared Browser Instances (Lazy-loaded)
+        self._shared_driver = None
+        self._shared_uc_driver = None
+        self._shared_playwright = None
+        self._playwright_context_manager = None
+        
         # Initialize directories
         self._setup_directories()
         
@@ -646,16 +574,37 @@ class EnhancedMangaFactory:
         # Initialize simple stitching
         self.stitcher = SimpleStitching(str(self.chapter_dir))
         
-        # Initialize ML panel detector (for better panel detection)
-        try:
-            from panel_ml_detector import create_ml_detector, create_model_trainer
-            self.ml_panel_detector = create_ml_detector(self.chapter_dir.parent)
-            self.model_trainer = create_model_trainer(self.chapter_dir.parent)
-            self.logger.info("✓ ML Panel Detector and Trainer initialized")
-        except Exception as e:
-            self.ml_panel_detector = None
-            self.model_trainer = None
-            self.logger.debug(f"ML detector/trainer fallback: {e}")
+        # ML panel detector removed (training not needed)
+        self.ml_panel_detector = None
+        self.model_trainer = None
+
+        # ── Smart Pipeline Intelligence managers ─────────────────────
+        # SmartPipelineManager: learns best scraper + processing hints per domain
+        if SMART_PIPELINE_AVAILABLE:
+            try:
+                self.pipeline_mgr = SmartPipelineManager(
+                    data_dir=str(self.chapter_dir.parent))
+                self.logger.info("✓ SmartPipelineManager initialized")
+            except Exception as e:
+                self.pipeline_mgr = None
+                self.logger.debug(f"SmartPipelineManager fallback: {e}")
+        else:
+            self.pipeline_mgr = None
+
+        # MLProxyManager: UCB-based proxy scoring + rotation
+        if ML_PROXY_AVAILABLE:
+            try:
+                self.proxy_mgr = MLProxyManager(
+                    data_dir=str(self.chapter_dir.parent))
+                self.logger.info("✓ MLProxyManager initialized")
+            except Exception as e:
+                self.proxy_mgr = None
+                self.logger.debug(f"MLProxyManager fallback: {e}")
+        else:
+            self.proxy_mgr = None
+
+        # Store last chapter URL for cross-method ML reporting
+        self._current_download_url = None
 
         # Processing statistics
         self.stats = {
@@ -668,34 +617,10 @@ class EnhancedMangaFactory:
         }
     
     def train_model_if_needed(self):
-        """Trigger ML model training if sufficient data has been collected."""
-        if not self.ml_panel_detector or not self.model_trainer:
-            return
-
-        try:
-            if self.ml_panel_detector.check_training_needed():
-                self.logger.info("\n" + "="*50)
-                self.logger.info("🧠 STARTING AUTOMATIC MODEL TRAINING")
-                self.logger.info("="*50)
-                self.logger.info("Sufficient new data collected. Fine-tuning model on local GPU...")
-                
-                success = self.model_trainer.train_model(epochs=5, logger_func=self.logger.info)
-                
-                if success:
-                    self.logger.info("✅ Model training completed successfully!")
-                else:
-                    self.logger.warning("⚠️ Model training completed with errors (or skipped).")
-                self.logger.info("="*50 + "\n")
-            else:
-                self.logger.info("Skipping model training (insufficient new data)")
-                
-        except Exception as e:
-            self.logger.error(f"Error during automatic training: {e}")
-
-    def _validate_license(self):
-        """Skip license validation for open source version"""
-        self.logger.info("✅ Running open source version - no license required")
+        """No-op — ML training has been removed."""
         return
+
+
     
     def _load_config(self, config_file=None):
         """Load configuration with sensible defaults"""
@@ -729,7 +654,7 @@ class EnhancedMangaFactory:
         
         # Override for "activate all functions"
         if not os.environ.get('ENABLE_EASYOCR'):
-            os.environ['ENABLE_EASYOCR'] = '1'
+            os.environ['ENABLE_EASYOCR'] = '0'  # Disable by default for speed
 
         
         # Load custom config if provided
@@ -778,7 +703,7 @@ class EnhancedMangaFactory:
         
         # Initialize EasyOCR if available
         # Note: EasyOCR is active by default if installed (may be slower but more accurate)
-        use_easyocr = os.environ.get('ENABLE_EASYOCR', '1') == '1'  # Default ON
+        use_easyocr = os.environ.get('ENABLE_EASYOCR', '0') == '1'  # Default OFF for speed
         
         if EASYOCR_AVAILABLE and use_easyocr:
             try:
@@ -796,99 +721,203 @@ class EnhancedMangaFactory:
         else:
             self.easyocr_reader = None
             self.logger.info("EasyOCR disabled for faster processing (Tesseract only)")
-    
-    def download_chapter(self, url, source_hint=None):
-        """Enhanced chapter download with better error handling"""
-        self.logger.info(f"Starting chapter download from: {url}")
+
+    def _get_shared_selenium_driver(self, headless_mode=True):
+        if self._shared_driver:
+            return self._shared_driver
+            
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
+        import os
+        
+        opts = Options()
+        if headless_mode:
+            opts.add_argument('--headless=new')
+        opts.add_argument('--disable-gpu')
+        opts.add_argument('--window-size=1280,1800')
+        opts.add_argument('--disable-blink-features=AutomationControlled')
+        opts.add_argument('--remote-allow-origins=*')
         
         try:
-            # Detect source from URL
-            if not source_hint:
-                source_hint = self._detect_source(url)
+            opts.page_load_strategy = 'eager'
+        except Exception:
+            pass
             
-            self.logger.info(f"Detected source: {source_hint}")
+        _drv = os.environ.get('CHROMEDRIVER')
+        if _drv and os.path.exists(_drv):
+            service = Service(executable_path=_drv)
+        else:
+            service = Service(ChromeDriverManager().install())
             
-            # Exponential backoff retry logic
-            max_chapter_retries = 5  # Increased from 3
-            base_delay = 2
-            max_delay = 60
-            success = False
-            
-            for attempt in range(max_chapter_retries):
-                if attempt > 0:
-                    # Exponential backoff with jitter
-                    delay = min(base_delay * (2 ** attempt), max_delay)
-                    jitter = random.uniform(0, delay * 0.1)
-                    total_delay = delay + jitter
-                    
-                    self.logger.info(f"Retry {attempt+1}/{max_chapter_retries} after {total_delay:.1f}s (exponential backoff)...")
-                    time.sleep(total_delay)
+        self._shared_driver = webdriver.Chrome(service=service, options=opts)
+        self._shared_driver.set_page_load_timeout(60)
+        return self._shared_driver
 
-                # Download based on source and mode
-                if self.mode == 'webtoon' and 'webtoons.com' in url:
-                    success = self._download_webtoon_enhanced(url)
-                elif self.mode == 'manga' and 'webtoons.com' not in url:
-                    # Proceed with manga-specific downloaders
-                    if 'mangaread' in url:
-                        success = self._download_mangaread(url)
-                    elif 'manhuaus.com' in url:
-                        success = self._download_manhuaus(url)
-                        if not success:
-                            success = self._download_manhuaus_playwright(url, headless=True)
-                        if not success:
-                            success = self._download_manhuaus_undetected(url, headless=True)
-                        if not success:
-                            success = self._download_manhuaus_selenium(url, headless=True)
-                        if not success:
-                            success = self._download_manhuaus_cloudscraper(url)
-                    elif 'manhwaclan.com' in url:
-                        success = self._download_manhwaclan(url, headless=True)
-                    elif 'topmanhua' in url or self._is_wpmanga_site(url):
-                        success = self._download_wpmanga(url)
-                    else:
-                        success = self._download_generic(url)
-                else:
-                    # Fallback to existing source detection if mode doesn't explicitly match
-                    if 'webtoons.com' in url:
-                        success = self._download_webtoon_enhanced(url)
-                    elif 'mangaread' in url:
-                        success = self._download_mangaread(url)
-                    elif 'manhuaus.com' in url:
-                        success = self._download_manhuaus(url)
-                        if not success:
-                            success = self._download_manhuaus_playwright(url, headless=True)
-                        if not success:
-                            success = self._download_manhuaus_undetected(url, headless=True)
-                        if not success:
-                            success = self._download_manhuaus_selenium(url, headless=True)
-                        if not success:
-                            success = self._download_manhuaus_cloudscraper(url)
-                    elif 'manhwaclan.com' in url:
-                        success = self._download_manhwaclan(url, headless=True)
-                    elif 'topmanhua' in url or self._is_wpmanga_site(url):
-                        success = self._download_wpmanga(url)
-                    else:
-                        success = self._download_generic(url)
-                
-                if success:
-                    break
+    def _get_shared_uc_driver(self, headless_mode=True):
+        if self._shared_uc_driver:
+            return self._shared_uc_driver
             
+        import undetected_chromedriver as uc
+        import os
+        opts = uc.ChromeOptions()
+        _bin = os.environ.get('CHROME_BIN')
+        if _bin and os.path.exists(_bin):
+            opts.binary_location = _bin
+        else:
+            _mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+            if os.path.exists(_mac):
+                opts.binary_location = _mac
+        if headless_mode:
+            opts.add_argument('--headless')
+        opts.add_argument('--disable-blink-features=AutomationControlled')
+        opts.add_argument('--disable-dev-shm-usage')
+        opts.add_argument('--remote-allow-origins=*')
+        opts.add_argument('--disable-gpu')
+        opts.add_argument('--window-size=1280,1800')
+        self._shared_uc_driver = uc.Chrome(options=opts)
+        return self._shared_uc_driver
+
+    def _get_shared_playwright_page(self, headless_mode=True):
+        if self._shared_playwright:
+            return self._shared_playwright
+            
+        from playwright.sync_api import sync_playwright
+        self._playwright_context_manager = sync_playwright().start()
+        browser = self._playwright_context_manager.chromium.launch(headless=headless_mode)
+        context = browser.new_context(viewport={'width': 1280, 'height': 1800})
+        self._shared_playwright = context.new_page()
+        return self._shared_playwright
+        
+    def cleanup(self):
+        """Clean up shared browser resources"""
+        if getattr(self, '_shared_driver', None):
+            try:
+                self._shared_driver.quit()
+            except Exception:
+                pass
+            self._shared_driver = None
+            
+        if getattr(self, '_shared_uc_driver', None):
+            try:
+                self._shared_uc_driver.quit()
+            except Exception:
+                pass
+            self._shared_uc_driver = None
+            
+        if getattr(self, '_shared_playwright', None):
+            try:
+                self._shared_playwright.context.browser.close()
+                if getattr(self, '_playwright_context_manager', None):
+                    self._playwright_context_manager.stop()
+            except Exception:
+                pass
+            self._shared_playwright = None
+            self._playwright_context_manager = None
+
+    def download_chapter(self, url, source_hint=None):
+        """Enhanced chapter download with Unified Bypass Engine + legacy fallback.
+        
+        Strategy:
+        1. Try UnifiedBypassEngine (auto-escalates methods, rotates proxy IPs)
+        2. If unified engine succeeds → done
+        3. If unified engine fails → fall back to legacy site-specific methods
+        """
+        self.logger.info(f"Starting chapter download from: {url}")
+        self._current_download_url = url
+
+        try:
+            success = False
+
+            # ── PHASE 1: Unified Bypass Engine (new auto-escalation) ──────────
+            if UNIFIED_BYPASS_AVAILABLE and UnifiedBypassEngine:
+                self.logger.info("🚀 [Phase 1] Trying UnifiedBypassEngine (auto-escalation + proxy rotation)")
+                try:
+                    engine = UnifiedBypassEngine(
+                        proxy_manager=self.proxy_mgr,
+                        pipeline_manager=self.pipeline_mgr,
+                        headless=True,
+                    )
+                    result = engine.download(url)
+
+                    if result['success'] and result.get('image_urls'):
+                        # Save the images to raw directory
+                        image_urls = result['image_urls']
+                        self.logger.info(f"✅ Unified engine found {len(image_urls)} images via '{result['method']}'")
+                        download_ok = self._download_images(image_urls, url)
+                        if download_ok:
+                            success = True
+                    else:
+                        self.logger.warning(
+                            f"⚠️ Unified engine exhausted all methods. "
+                            f"Attempts: {len(result.get('attempts', []))}. "
+                            f"Falling back to legacy methods."
+                        )
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Unified engine error: {e}. Falling back to legacy methods.")
+
+            # ── PHASE 2: Legacy site-specific fallback (preserved for safety) ─
+            if not success:
+                self.logger.info("🔄 [Phase 2] Trying legacy site-specific methods")
+
+                # Detect source from URL
+                if not source_hint:
+                    source_hint = self._detect_source(url)
+                self.logger.info(f"Detected source: {source_hint}")
+
+                # Single-pass through legacy methods (no redundant retries)
+                _attempt_start = time.time()
+
+                if 'webtoons.com' in url:
+                    success = self._download_webtoon_enhanced(url)
+                elif 'mangaread' in url:
+                    success = self._download_mangaread(url)
+                elif 'manhuaus.com' in url:
+                    success = self._download_manhuaus(url)
+                    if not success:
+                        success = self._download_manhuaus_playwright(url, headless=True)
+                    if not success:
+                        success = self._download_manhuaus_undetected(url, headless=True)
+                    if not success:
+                        success = self._download_manhuaus_selenium(url, headless=True)
+                    if not success:
+                        success = self._download_manhuaus_cloudscraper(url)
+                elif 'manhwaclan.com' in url:
+                    success = self._download_manhwaclan(url, headless=True)
+                elif 'topmanhua' in url or self._is_wpmanga_site(url):
+                    success = self._download_wpmanga(url)
+                else:
+                    success = self._download_generic(url)
+
+                # Record to pipeline manager
+                _duration = time.time() - _attempt_start
+                if self.pipeline_mgr:
+                    try:
+                        self.pipeline_mgr.record_scraper_result(
+                            url=url,
+                            scraper_name=source_hint,
+                            success=success,
+                            duration=_duration,
+                        )
+                    except Exception:
+                        pass
+
+            # ── POST-DOWNLOAD: Validate ───────────────────────────────────────
             if success:
-                # Count downloaded files
                 raw_files = list(self.dirs['raw'].glob('*'))
                 self.stats['downloaded_images'] = len(raw_files)
-                
-                # Validate download completeness
+
                 if self._validate_download_completeness():
                     self.logger.info(f"✓ Download validated: {self.stats['downloaded_images']} images")
                 else:
                     self.logger.warning("Download validation warnings - check logs")
-                
+
                 return True
             else:
-                self.logger.error("Download failed after multiple retries")
+                self.logger.error("Download failed after all methods exhausted")
                 return False
-                
+
         except Exception as e:
             self.logger.error(f"Download error: {e}")
             self.stats['errors'] += 1
@@ -1712,56 +1741,107 @@ class EnhancedMangaFactory:
         return success_count
 
     def _download_images(self, image_urls, referer_url):
-        """Download images with proper headers and error handling"""
+        """Download images with proper headers and MLProxyManager UCB proxy rotation."""
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
             'Referer': referer_url,
             'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9'
         }
-        
+
         success_count = 0
-        for i, img_url in enumerate(image_urls):
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def download_single(i, img_url):
             # Resume logic: Check if any file with this index already exists
             existing = list(self.dirs['raw'].glob(f"{i+1:03d}.*"))
             if existing:
                 if existing[0].stat().st_size > 1024:
                     self.logger.debug(f"Skipping {existing[0].name} (already exists)")
-                    success_count += 1
-                    continue
+                    return True
 
             max_retries = 5
             for attempt in range(max_retries):
+                # ── Proxy strategy: try DIRECT first, proxy only as fallback ──
+                # Free proxies are often slower/broken for CDN image downloads.
+                # First 2 attempts: direct. Attempts 3-5: try with proxy.
+                proxy_dict = None
+                _chosen_proxy = None
+                if attempt >= 2 and self.proxy_mgr:
+                    try:
+                        _chosen_proxy = self.proxy_mgr.get_best_proxy()
+                        if _chosen_proxy:
+                            proxy_dict = {
+                                'http':  f'http://{_chosen_proxy}',
+                                'https': f'http://{_chosen_proxy}',
+                            }
+                    except Exception:
+                        pass
+
                 try:
-                    self.logger.debug(f"Downloading image {i+1}/{len(image_urls)} (Attempt {attempt+1})")
-                    
-                    response = requests.get(img_url, headers=headers, timeout=30)
+                    self.logger.debug(
+                        f"Downloading image {i+1}/{len(image_urls)} "
+                        f"(Attempt {attempt+1}"
+                        + (f", proxy={_chosen_proxy}" if _chosen_proxy else "") + ")"
+                    )
+
+                    response = requests.get(
+                        img_url, headers=headers,
+                        proxies=proxy_dict, timeout=15
+                    )
                     response.raise_for_status()
-                    
+
                     # Validate image content
                     if len(response.content) < 1000:
                         self.logger.warning(f"Image too small: {len(response.content)} bytes")
+                        if _chosen_proxy and self.proxy_mgr:
+                            try:
+                                self.proxy_mgr.report_result(_chosen_proxy, success=False,
+                                                             latency=30.0)
+                            except Exception:
+                                pass
                         if attempt < max_retries - 1:
-                            time.sleep(2)
+                            time.sleep(1)
                             continue
-                    
+
                     # Save image
                     filename = self.dirs['raw'] / f"{i+1:03d}.jpg"
                     with open(filename, 'wb') as f:
                         f.write(response.content)
-                    
-                    success_count += 1
+
+                    # Report proxy success
+                    if _chosen_proxy and self.proxy_mgr:
+                        try:
+                            self.proxy_mgr.report_result(_chosen_proxy, success=True,
+                                                         latency=response.elapsed.total_seconds())
+                        except Exception:
+                            pass
+
                     self.logger.debug(f"Saved: {filename}")
-                    break # Success!
-                    
+                    return True
+
                 except Exception as e:
+                    # Report proxy failure
+                    if _chosen_proxy and self.proxy_mgr:
+                        try:
+                            self.proxy_mgr.report_result(_chosen_proxy, success=False,
+                                                         latency=30.0)
+                        except Exception:
+                            pass
                     if attempt < max_retries - 1:
-                        wait_time = (attempt + 1) * 2
-                        self.logger.warning(f"Error downloading image {i+1}: {e}. Retrying in {wait_time}s...")
+                        wait_time = attempt + 1
                         time.sleep(wait_time)
                     else:
-                        self.logger.error(f"Failed to download image {i+1} after {max_retries} attempts: {e}")
-        
+                        self.logger.error(
+                            f"Failed to download image {i+1} after {max_retries} attempts: {e}")
+            return False
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(download_single, i, img_url) for i, img_url in enumerate(image_urls)]
+            for future in as_completed(futures):
+                if future.result():
+                    success_count += 1
+
         return success_count
     
     def _download_webtoon_html_fallback(self, url):
@@ -1875,23 +1955,21 @@ class EnhancedMangaFactory:
                 return False
             self.logger.info(f"Found {len(image_urls)} images to download")
             success_count = 0
-            for i, img_url in enumerate(image_urls):
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            def download_single(i, img_url):
                 # Resume logic: Check if any file with this index already exists
-                # We check for common extensions to be thorough
                 existing = list(self.dirs['raw'].glob(f"{i+1:03d}.*"))
                 if existing:
-                    # Basic validation: ensure file isn't empty (e.g. > 1KB)
                     if existing[0].stat().st_size > 1024:
                         self.logger.debug(f"Skipping {existing[0].name} (already exists)")
-                        success_count += 1
-                        continue
+                        return True
 
-                max_retries = 5
+                max_retries = 3
                 for attempt in range(max_retries):
                     try:
                         img_headers = headers.copy()
                         img_headers['Referer'] = url
-                        img_response = requests.get(img_url, headers=img_headers, stream=True, timeout=30)
+                        img_response = requests.get(img_url, headers=img_headers, stream=True, timeout=15)
                         img_response.raise_for_status()
                         
                         content_type = img_response.headers.get('content-type', '')
@@ -1912,15 +1990,20 @@ class EnhancedMangaFactory:
                                 if chunk:
                                     f.write(chunk)
                         self.logger.debug(f"Downloaded {img_path.name}")
-                        success_count += 1
-                        break # Success!
+                        return True
                     except Exception as e:
                         if attempt < max_retries - 1:
-                            wait_time = (attempt + 1) * 2
-                            self.logger.warning(f"Attempt {attempt+1} failed for image {i+1}: {e}. Retrying in {wait_time}s...")
+                            wait_time = attempt + 1
                             time.sleep(wait_time)
                         else:
                             self.logger.error(f"Failed to download image {i+1} after {max_retries} attempts: {e}")
+                return False
+
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(download_single, i, img_url) for i, img_url in enumerate(image_urls)]
+                for future in as_completed(futures):
+                    if future.result():
+                        success_count += 1
             self.logger.info(f"Successfully processed {success_count}/{len(image_urls)} images from ManhuaUS")
             return success_count > 0
         except requests.RequestException as e:
@@ -2041,19 +2124,19 @@ class EnhancedMangaFactory:
 
     def _download_images_with_session(self, session, image_urls, referer_url):
         success_count = 0
-        for i, img_url in enumerate(image_urls):
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        def download_single(i, img_url):
             # Resume logic: Check if any file with this index already exists
             existing = list(self.dirs['raw'].glob(f"{i+1:03d}.*"))
             if existing:
                 if existing[0].stat().st_size > 1024:
                     self.logger.debug(f"Skipping {existing[0].name} (already exists)")
-                    success_count += 1
-                    continue
+                    return True
 
-            max_retries = 5
+            max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    r = session.get(img_url, headers={'Accept': 'image/webp,image/*,*/*;q=0.8', 'Referer': referer_url}, stream=True, timeout=60)
+                    r = session.get(img_url, headers={'Accept': 'image/webp,image/*,*/*;q=0.8', 'Referer': referer_url}, stream=True, timeout=20)
                     r.raise_for_status()
                     ct = r.headers.get('content-type', '')
                     if 'jpeg' in ct or 'jpg' in ct:
@@ -2071,104 +2154,73 @@ class EnhancedMangaFactory:
                         for chunk in r.iter_content(8192):
                             if chunk:
                                 f.write(chunk)
-                    success_count += 1
-                    break # Success!
+                    return True
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        wait_time = (attempt + 1) * 2
-                        self.logger.warning(f"Attempt {attempt+1} failed for image {i+1}: {e}. Retrying in {wait_time}s...")
+                        wait_time = attempt + 1
                         time.sleep(wait_time)
                     else:
                         self.logger.error(f"Failed to download image {i+1} after {max_retries} attempts: {e}")
+            return False
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(download_single, i, img_url) for i, img_url in enumerate(image_urls)]
+            for future in as_completed(futures):
+                if future.result():
+                    success_count += 1
         return success_count
 
     def _download_manhuaus_selenium(self, url, headless=True):
         def _run(headless_mode):
-            from selenium import webdriver
-            from selenium.webdriver.chrome.options import Options
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.ui import WebDriverWait
             from selenium.webdriver.support import expected_conditions as EC
-            from webdriver_manager.chrome import ChromeDriverManager
-            from selenium.webdriver.chrome.service import Service
             import time
-            opts = Options()
-            _bin = os.environ.get('CHROME_BIN')
-            if _bin and os.path.exists(_bin):
-                opts.binary_location = _bin
-            else:
-                _mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-                if os.path.exists(_mac):
-                    opts.binary_location = _mac
-            if headless_mode:
-                opts.add_argument('--headless')
-            opts.add_argument('--disable-blink-features=AutomationControlled')
-            opts.add_argument('--disable-dev-shm-usage')
-            opts.add_argument('--no-sandbox')
-            opts.add_argument('--remote-allow-origins=*')
-            opts.add_argument('--disable-gpu')
-            opts.add_argument('--window-size=1280,1800')
+            driver = self._get_shared_selenium_driver(headless_mode)
             try:
+                driver.get(url)
+                WebDriverWait(driver, 30).until(
+                    lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
+                )
                 try:
-                    opts.page_load_strategy = 'eager'
+                    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
                 except Exception:
                     pass
-                _drv = os.environ.get('CHROMEDRIVER')
-                if _drv and os.path.exists(_drv):
-                    service = Service(executable_path=_drv)
-                else:
-                    service = Service(ChromeDriverManager().install())
-                driver = webdriver.Chrome(service=service, options=opts)
-                driver.set_page_load_timeout(60)
-                try:
-                    driver.get(url)
-                    WebDriverWait(driver, 30).until(
-                        lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
-                    )
+                WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.reading-content img')))
+                
+                # CLOSE POPUPS AND AD OVERLAYS (ROOT LEVEL)
+                if POPUP_CLOSER_AVAILABLE and PopupCloser:
                     try:
-                        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-                    except Exception:
-                        pass
-                    WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.reading-content img')))
-                    
-                    # CLOSE POPUPS AND AD OVERLAYS (ROOT LEVEL)
-                    if POPUP_CLOSER_AVAILABLE and PopupCloser:
-                        try:
-                            self.logger.info("🚫 Checking for popups and overlays before scrolling...")
-                            popup_closer = PopupCloser(max_attempts=3, wait_seconds=1.5)
-                            stats = popup_closer.close_all_popups_selenium(driver, url)
-                            if stats['popups_closed'] > 0 or stats['overlays_closed'] > 0:
-                                self.logger.info(f"🎯 Cleaned up page: {stats}")
-                        except Exception as e:
-                            self.logger.warning(f"Popup closer warning: {e}")
-                    
-                    last = 0
-                    same = 0
-                    for _ in range(90):
-                        driver.execute_script('window.scrollBy(0, Math.floor(window.innerHeight*0.9));')
-                        time.sleep(0.35)
-                        driver.execute_script('window.scrollBy(0, -40);')
-                        time.sleep(0.15)
-                        cnt = len(driver.find_elements(By.CSS_SELECTOR, 'img'))
-                        if cnt == last:
-                            same += 1
-                        else:
-                            same = 0
-                        last = cnt
-                        if same >= 5:
-                            break
-                    time.sleep(1)
-                    image_urls = self._extract_manhuaus_images_dom(driver)
-                    if not image_urls:
-                        return False
-                    session = self._build_requests_session_from_driver(driver, url)
-                    count = self._download_images_with_session(session, image_urls, url)
-                    return count > 0
-                finally:
-                    try:
-                        driver.quit()
-                    except Exception:
-                        pass
+                        self.logger.info("🚫 Checking for popups and overlays before scrolling...")
+                        popup_closer = PopupCloser(max_attempts=3, wait_seconds=1.5)
+                        stats = popup_closer.close_all_popups_selenium(driver, url)
+                        if stats['popups_closed'] > 0 or stats['overlays_closed'] > 0:
+                            self.logger.info(f"🎯 Cleaned up page: {stats}")
+                    except Exception as e:
+                        self.logger.warning(f"Popup closer warning: {e}")
+                
+                last = 0
+                same = 0
+                for _ in range(90):
+                    driver.execute_script('window.scrollBy(0, Math.floor(window.innerHeight*0.9));')
+                    time.sleep(0.35)
+                    driver.execute_script('window.scrollBy(0, -40);')
+                    time.sleep(0.15)
+                    cnt = len(driver.find_elements(By.CSS_SELECTOR, 'img'))
+                    if cnt == last:
+                        same += 1
+                    else:
+                        same = 0
+                    last = cnt
+                    if same >= 5:
+                        break
+                time.sleep(1)
+                image_urls = self._extract_manhuaus_images_dom(driver)
+                if not image_urls:
+                    return False
+                session = self._build_requests_session_from_driver(driver, url)
+                count = self._download_images_with_session(session, image_urls, url)
+                return count > 0
             except Exception as e:
                 try:
                     self.logger.warning(f"ManhuaUS Selenium attempt failed: {e}")
@@ -2186,27 +2238,11 @@ class EnhancedMangaFactory:
 
     def _download_manhuaus_undetected(self, url, headless=True):
         try:
-            import undetected_chromedriver as uc
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.ui import WebDriverWait
             from selenium.webdriver.support import expected_conditions as EC
-            import time, os
-            opts = uc.ChromeOptions()
-            _bin = os.environ.get('CHROME_BIN')
-            if _bin and os.path.exists(_bin):
-                opts.binary_location = _bin
-            else:
-                _mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-                if os.path.exists(_mac):
-                    opts.binary_location = _mac
-            if headless:
-                opts.add_argument('--headless')
-            opts.add_argument('--disable-blink-features=AutomationControlled')
-            opts.add_argument('--disable-dev-shm-usage')
-            opts.add_argument('--remote-allow-origins=*')
-            opts.add_argument('--disable-gpu')
-            opts.add_argument('--window-size=1280,1800')
-            driver = uc.Chrome(options=opts)
+            import time
+            driver = self._get_shared_uc_driver(headless)
             try:
                 driver.get(url)
                 WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.reading-content img')))
@@ -2244,23 +2280,19 @@ class EnhancedMangaFactory:
                 session = self._build_requests_session_from_driver(driver, url)
                 count = self._download_images_with_session(session, image_urls, url)
                 return count > 0
-            finally:
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
+            except Exception as e:
+                self.logger.warning(f"ManhuaUS undetected attempt failed: {e}")
+                return False
         except Exception as e:
             self.logger.error(f"ManhuaUS undetected-chromedriver failed: {e}")
             return False
 
     def _download_manhuaus_playwright(self, url, headless=True):
         def _run(headless_mode):
-            from playwright.sync_api import sync_playwright
             import time, requests
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=headless_mode)
-                context = browser.new_context()
-                page = context.new_page()
+            try:
+                page = self._get_shared_playwright_page(headless_mode)
+                context = page.context
                 page.goto(url, wait_until='domcontentloaded', timeout=60000)
                 page.wait_for_selector('div.reading-content img', timeout=30000)
                 last = 0
@@ -2300,7 +2332,6 @@ class EnhancedMangaFactory:
                         seen.add(src)
                         image_urls.append(src)
                 if not image_urls:
-                    browser.close()
                     return False
                 s = requests.Session()
                 ua = page.evaluate('navigator.userAgent')
@@ -2308,8 +2339,10 @@ class EnhancedMangaFactory:
                 for c in context.cookies():
                     s.cookies.set(c.get('name'), c.get('value'), domain=c.get('domain'), path=c.get('path'))
                 count = self._download_images_with_session(s, image_urls, url)
-                browser.close()
                 return count > 0
+            except Exception as e:
+                self.logger.warning(f"ManhuaUS Playwright attempt failed: {e}")
+                return False
         try:
             ok = _run(headless)
             if not ok and headless:
@@ -2425,17 +2458,19 @@ class EnhancedMangaFactory:
         try:
             import undetected_chromedriver as uc
             from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
             import time
             import requests
             import threading
 
-            
             self.logger.info("🚀 Starting manhwaclan download with UC + Human Behavior...")
-            
+
             # Setup UC
             opts = uc.ChromeOptions()
             opts.add_argument('--no-sandbox')
             opts.add_argument('--disable-dev-shm-usage')
+            opts.add_argument('--disable-blink-features=AutomationControlled')
             if headless:
                 opts.add_argument('--headless')
                 opts.add_argument('--window-size=1920,1080')
@@ -2443,20 +2478,14 @@ class EnhancedMangaFactory:
                 opts.add_argument('--mute-audio')
                 opts.add_argument('--disable-notifications')
                 opts.add_argument('--no-first-run')
-                # Stealth: Spoof User-Agent to match real Chrome (Mac)
                 opts.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-                # Stealth: Mask automation
-                opts.add_argument('--disable-blink-features=AutomationControlled')
 
-
-
-            
             driver = uc.Chrome(options=opts, use_subprocess=True)
-            
+
             # Initialize human behavior and popup closer
             human = None
             popup_closer = None
-            
+
             if HUMAN_BEHAVIOR_AVAILABLE and HumanBehavior:
                 human = HumanBehavior(
                     min_delay=0.2,
@@ -2464,73 +2493,73 @@ class EnhancedMangaFactory:
                     movement_speed='medium'
                 )
                 self.logger.info("🎭 Human behavior simulator initialized")
-            
+
             if POPUP_CLOSER_AVAILABLE and PopupCloser:
                 popup_closer = PopupCloser(max_attempts=5, wait_seconds=2.0)
                 self.logger.info("🚫 Popup closer initialized")
-            
+
             try:
                 # Navigate to chapter
                 self.logger.info(f"📍 Navigating to: {url}")
                 driver.get(url)
-                
-                # Wait for Cloudflare (UC auto-resolves)
-                self.logger.info("⏳ Waiting 10 seconds for Cloudflare auto-resolution...")
-                time.sleep(10)
-                
+
+                # Dynamic Cloudflare wait: wait up to 30s for reading content to appear
+                self.logger.info("⏳ Waiting for Cloudflare resolution + page content...")
+                try:
+                    WebDriverWait(driver, 30).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, '.reading-content img, .page-break img'))
+                    )
+                    self.logger.info("✅ Page content loaded (reading-content found)")
+                except Exception:
+                    self.logger.warning("⚠️ Timed out waiting for .reading-content — continuing anyway")
+                    # Give a bit more time in case images load slowly
+                    time.sleep(5)
+
                 # CLOSE POPUPS AND AD OVERLAYS (PARALLEL)
                 driver_lock = threading.Lock()
-                
+
                 if popup_closer:
                     self.logger.info("🛡️ Starting parallel popup/overlay closer...")
-                    # inject JS right away
                     popup_closer.start_monitoring(driver, driver_lock, interval=2.0)
 
-                
                 # HUMAN-LIKE SCROLLING (ROOT LEVEL)
                 if human:
                     self.logger.info("📜 Scrolling like a human to load all images...")
-                    
+
                     # Initial pause (looking at page)
                     human.read_pause(1.0, 2.5)
-                    
-                    # Scroll down in random chunks
+
                     # Scroll down in random chunks
                     for i in range(random.randint(3, 5)):
-                        # Acquire lock for interaction
                         with driver_lock:
-                            human.human_scroll(driver, 'down', 
-                                             amount=random.randint(200, 600), 
+                            human.human_scroll(driver, 'down',
+                                             amount=random.randint(200, 600),
                                              smooth=True)
-                        
-                        # Sleep OUTSIDE the lock to let popup closer run
-                        # human.read_pause(0.5, 1.5)
                         time.sleep(random.uniform(0.5, 1.5))
 
-                    
                     # Sometimes scroll back up (checking something)
                     if random.random() > 0.5:
-                        human.human_scroll(driver, 'up', 
-                                         amount=random.randint(100, 400), 
+                        human.human_scroll(driver, 'up',
+                                         amount=random.randint(100, 400),
                                          smooth=True)
                         human.read_pause(0.3, 0.8)
-                    
+
                     # Scroll to bottom
-                    human.human_scroll(driver, 'down', 
-                                     amount=random.randint(1000, 2000), 
+                    human.human_scroll(driver, 'down',
+                                     amount=random.randint(1000, 2000),
                                      smooth=True)
                     human.read_pause(1.0, 2.0)
-                    
+
                     # Scroll back to top
                     driver.execute_script("window.scrollTo({top: 0, behavior: 'smooth'})")
                     time.sleep(random.uniform(1.5, 2.5))
-                    
+
                     # Final scroll to bottom
-                    human.human_scroll(driver, 'down', 
-                                     amount=random.randint(1500, 3000), 
+                    human.human_scroll(driver, 'down',
+                                     amount=random.randint(1500, 3000),
                                      smooth=True)
                     human.read_pause(1.0, 2.0)
-                    
+
                     self.logger.info("  ✅ Natural scrolling complete")
                 else:
                     # Fallback to basic scrolling with randomization
@@ -2538,106 +2567,164 @@ class EnhancedMangaFactory:
                     with driver_lock:
                         driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
                     time.sleep(random.uniform(4, 6))
-                    
+
                     with driver_lock:
                         driver.execute_script("window.scrollTo(0, 0)")
                     time.sleep(random.uniform(1.5, 2.5))
-                    
+
                     with driver_lock:
                         driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
                     time.sleep(random.uniform(4, 6))
 
-                
-                # Extract manga panel images
-                self.logger.info("🖼️ Extracting images...")
+                # Force lazy images to load via JS
+                self.logger.info("🔄 Forcing lazy images to load...")
                 with driver_lock:
-                    images = driver.find_elements(By.TAG_NAME, 'img')
-                
-                image_urls = []
-                # Process elements (safe to do outside lock as we have the element refs, 
-                # though accessing attributes might need lock if driver is very strict, 
-                # but usually element reference access is okay unless DOM changes.
-                # To be safe, we'll lock attribute access or just quick grab.)
-                
-                # Better: grab all data inside lock
-                img_data_list = []
-                with driver_lock:
-                    for img in images:
-                        try:
-                            # Try multiple attributes (lazy loading)
-                            src = (img.get_attribute('data-src') or 
-                                   img.get_attribute('data-lazy-src') or 
-                                   img.get_attribute('src'))
-                            if src:
-                                img_data_list.append(src)
-                        except:
-                            pass
-                
-                for src in img_data_list:
-                    if src and src.startswith('http'):
+                    driver.execute_script("""
+                        document.querySelectorAll('img[data-src]').forEach(img => {
+                            if (img.getAttribute('data-src')) {
+                                img.src = img.getAttribute('data-src');
+                            }
+                        });
+                        document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+                            img.loading = 'eager';
+                        });
+                    """)
+                time.sleep(2)
 
-                        # Filter manga panels (from c3.clancd.com CDN)
-                        if 'clancd.com' in src and '/chapter_' in src:
-                            image_urls.append(src)
-                
+                # Extract manga panel images using SPECIFIC CSS selectors
+                self.logger.info("🖼️ Extracting images with CSS selectors...")
+                manga_selectors = [
+                    '.reading-content img.wp-manga-chapter-img',
+                    '.reading-content img',
+                    '.page-break img',
+                ]
+
+                image_urls = []
+                seen = set()
+
+                with driver_lock:
+                    for selector in manga_selectors:
+                        try:
+                            imgs = driver.find_elements(By.CSS_SELECTOR, selector)
+                            for img in imgs:
+                                try:
+                                    # Prefer lazy-load attributes
+                                    src = (img.get_attribute('data-src') or
+                                           img.get_attribute('data-lazy-src') or
+                                           img.get_attribute('data-original') or
+                                           img.get_attribute('src'))
+                                    if not src or not src.startswith('http'):
+                                        continue
+                                    src = src.strip()
+                                    if src in seen:
+                                        continue
+                                    # Filter out non-manga images (ads, logos, avatars, etc.)
+                                    src_lower = src.lower()
+                                    if any(kw in src_lower for kw in ['avatar', 'logo', 'icon', 'thumb', 'banner', 'gravatar', 'captcha', '/ads/', 'tracking', 'pixel']):
+                                        continue
+                                    seen.add(src)
+                                    image_urls.append(src)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            continue
+                        # If first selector found enough images, stop
+                        if len(image_urls) >= 5:
+                            self.logger.info(f"  Found {len(image_urls)} images with selector '{selector}'")
+                            break
+
                 self.logger.info(f"✅ Found {len(image_urls)} manga panel images")
-                
+
                 if not image_urls:
-                    self.logger.warning("No manga panels found")
+                    self.logger.warning("No manga panels found with CSS selectors")
                     return False
-                
+
+                # Build a requests session FROM the browser (cookies + UA)
+                # so CDN doesn't reject us with 403
+                self.logger.info("🔗 Building download session from browser context...")
+                session = requests.Session()
+                with driver_lock:
+                    ua = driver.execute_script("return navigator.userAgent;")
+                    cookies = driver.get_cookies()
+                session.headers.update({
+                    'User-Agent': ua,
+                    'Referer': url,
+                    'Accept': 'image/webp,image/*,*/*;q=0.8',
+                })
+                for cookie in cookies:
+                    session.cookies.set(cookie['name'], cookie['value'],
+                                       domain=cookie.get('domain', ''),
+                                       path=cookie.get('path', '/'))
+
                 # Download images with retries
                 self.logger.info(f"⬇️  Downloading {len(image_urls)} images...")
                 downloaded = 0
-                
+
                 for i, img_url in enumerate(image_urls, 1):
                     try:
-                        filename = f"page_{i:03d}.jpg"
-                        filepath = self.dirs['raw'] / filename
-                        
-                        # Retry logic for connection errors
-                        max_retries = 3
+                        # Resume logic: skip if already exists
+                        existing = list(self.dirs['raw'].glob(f"{i:03d}.*"))
+                        if existing and existing[0].stat().st_size > 1024:
+                            self.logger.debug(f"Skipping {existing[0].name} (already exists)")
+                            downloaded += 1
+                            continue
+
+                        max_retries = 5
                         for attempt in range(max_retries):
                             try:
-                                response = requests.get(img_url, timeout=30)
+                                response = session.get(img_url, timeout=30, stream=True)
                                 response.raise_for_status()
-                                
+
+                                # Determine extension from content-type
+                                ct = response.headers.get('content-type', '')
+                                if 'jpeg' in ct or 'jpg' in ct:
+                                    ext = '.jpg'
+                                elif 'png' in ct:
+                                    ext = '.png'
+                                elif 'webp' in ct:
+                                    ext = '.webp'
+                                else:
+                                    ext = '.jpg'
+
+                                filepath = self.dirs['raw'] / f"{i:03d}{ext}"
                                 with open(filepath, 'wb') as f:
-                                    f.write(response.content)
-                                
+                                    for chunk in response.iter_content(8192):
+                                        if chunk:
+                                            f.write(chunk)
+
                                 downloaded += 1
-                                self.logger.info(f"  [{i}/{len(image_urls)}] {filename}")
+                                self.logger.info(f"  [{i}/{len(image_urls)}] {filepath.name}")
                                 break
-                                
+
                             except Exception as e:
                                 if attempt < max_retries - 1:
-                                    self.logger.warning(f"  Retry {attempt+1}/{max_retries} for {filename}")
-                                    time.sleep(2)
+                                    wait_time = (attempt + 1) * 2
+                                    self.logger.warning(f"  Retry {attempt+1}/{max_retries} for image {i}: {e}")
+                                    time.sleep(wait_time)
                                 else:
-                                    self.logger.warning(f"  ⚠️  Failed to download {filename}: {e}")
-                        
+                                    self.logger.warning(f"  ⚠️  Failed to download image {i}: {e}")
+
                         # Human-like delay between downloads
                         if human:
                             human.humanized_delay(0.3)
                         else:
                             time.sleep(random.uniform(0.3, 0.7))
-                        
+
                     except Exception as e:
                         self.logger.warning(f"  ⚠️  Error downloading image {i}: {e}")
-                
+
                 self.logger.info(f"✅ Downloaded {downloaded}/{len(image_urls)} images")
                 return downloaded > 0
-                
+
             finally:
                 if popup_closer:
                     popup_closer.stop_monitoring()
-                
+
                 try:
                     driver.quit()
                 except Exception:
                     pass
 
-                    
         except Exception as e:
             self.logger.error(f"Manhwaclan download failed: {e}")
             import traceback
@@ -2970,7 +3057,8 @@ class EnhancedMangaFactory:
 
     def _download_generic(self, url):
         """
-        3-layer generic download for new / unknown sites:
+        4-layer generic download for new / unknown sites:
+          Layer 0 — MLSiteLearner heuristic DOM analyser (fast, no browser)
           Layer 1 — requests + BeautifulSoup (fast, no browser)
           Layer 2 — Playwright stealth (headless, medium)
           Layer 3 — Undetected ChromeDriver (heavy, last resort)
@@ -2979,6 +3067,36 @@ class EnhancedMangaFactory:
         from urllib.parse import urlparse
         domain = urlparse(url).netloc.replace('www.', '')
         self.logger.info(f"🌐 Generic download for unknown/new site: {domain}")
+
+        # ── Layer 0: MLSiteLearner — heuristic DOM analyser ────────────────
+        if ML_SITE_LEARNER_AVAILABLE:
+            self.logger.info("[Generic L0] Trying MLSiteLearner heuristic analyser...")
+            try:
+                import requests as _req
+                _resp = _req.get(
+                    url,
+                    headers={
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
+                                      ' AppleWebKit/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    },
+                    timeout=20,
+                )
+                if _resp.ok:
+                    learner = MLSiteLearner()
+                    image_urls = learner.analyze_dom_for_manga_images(_resp.text, url)
+                    if image_urls:
+                        self.logger.info(
+                            f"[Generic L0] ✅ MLSiteLearner found {len(image_urls)} images"
+                        )
+                        count = self._download_images(image_urls, url)
+                        if count > 0:
+                            return True
+                        self.logger.warning("[Generic L0] Images found but downloads failed — continuing")
+                    else:
+                        self.logger.warning("[Generic L0] MLSiteLearner found no images — continuing")
+            except Exception as _e:
+                self.logger.warning(f"[Generic L0] MLSiteLearner failed: {_e}")
 
         # ── Layer 1: requests + BeautifulSoup ──────────────────────────
         self.logger.info("[Generic L1] Trying fast HTML scraper...")
@@ -3209,58 +3327,93 @@ class EnhancedMangaFactory:
             return 1
     
     def clean_pages_enhanced(self):
-        """Enhanced page cleaning with better duplicate detection"""
+        """Enhanced page cleaning with better duplicate detection and ML-adaptive denoising."""
         self.logger.info("Starting enhanced page cleaning")
-        
+
+        # ── SmartPipelineManager: consult skip_denoise hint ───────────────
+        _skip_denoise = False
+        if self.pipeline_mgr:
+            try:
+                _url = getattr(self, '_current_download_url', None)
+                if _url:
+                    _strat = self.pipeline_mgr.get_strategy(_url)
+                    _skip_denoise = bool(_strat.get('skip_denoise', False))
+                    if _skip_denoise:
+                        self.logger.info(
+                            "[SmartPipeline] skip_denoise=True — skipping image enhancement"
+                        )
+            except Exception as _e:
+                self.logger.debug(f"SmartPipelineManager clean hint failed: {_e}")
+
         try:
             # Get all raw images
             raw_files = []
             for ext in ['*.jpg', '*.jpeg', '*.png', '*.webp']:
                 raw_files.extend(self.dirs['raw'].glob(ext))
-            
+
             if not raw_files:
                 self.logger.error("No raw images found")
                 return []
-            
+
             # Sort files naturally
             raw_files.sort(key=lambda x: self._natural_sort_key(x.name))
             self.logger.info(f"Found {len(raw_files)} raw images")
-            
+
             # Process images
+            import threading
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import os
+            
             cleaned_files = []
             image_hashes = set()
+            hash_lock = threading.Lock()
             
-            for i, img_path in enumerate(raw_files):
+            def process_image(i, img_path):
                 try:
                     # Load and validate image
                     img = Image.open(img_path)
                     if img is None:
-                        continue
-                    
+                        return i, None
+
                     # Check for duplicates using perceptual hash
                     img_hash = self._calculate_image_hash(img)
-                    if img_hash in image_hashes:
-                        self.logger.debug(f"Skipping duplicate: {img_path.name}")
-                        continue
-                    image_hashes.add(img_hash)
-                    
+                    with hash_lock:
+                        if img_hash in image_hashes:
+                            self.logger.debug(f"Skipping duplicate: {img_path.name}")
+                            return i, None
+                        image_hashes.add(img_hash)
+
                     # Auto-rotate if needed
                     img = self._auto_rotate_image(img)
-                    
-                    # Enhance image quality
-                    img = self._enhance_image_quality(img)
-                    
+
+                    # Enhance image quality (skip if ML says images are clean enough)
+                    if not _skip_denoise:
+                        img = self._enhance_image_quality(img)
+
                     # Save cleaned image
                     new_filename = f"{i+1:03d}.png"
                     new_path = self.dirs['clean'] / new_filename
                     img.save(new_path, "PNG", optimize=True)
-                    
-                    cleaned_files.append(new_path)
+
                     self.logger.debug(f"Cleaned: {img_path.name} -> {new_filename}")
-                    
+                    return i, new_path
                 except Exception as e:
                     self.logger.error(f"Error cleaning {img_path}: {e}")
-                    self.stats['errors'] += 1
+                    return i, None
+                    
+            results_dict = {}
+            with ThreadPoolExecutor(max_workers=min(10, (os.cpu_count() or 4) + 2)) as executor:
+                futures = {executor.submit(process_image, i, path): i for i, path in enumerate(raw_files)}
+                for future in as_completed(futures):
+                    try:
+                        idx, result = future.result()
+                        if result:
+                            results_dict[idx] = result
+                    except Exception:
+                        self.stats['errors'] += 1
+                        
+            # Reconstruct list in natural sort order to maintain comic page flow
+            cleaned_files = [results_dict[k] for k in sorted(results_dict.keys())]
             
             self.stats['cleaned_images'] = len(cleaned_files)
             self.logger.info(f"Cleaned {len(cleaned_files)} images")
@@ -4994,29 +5147,45 @@ class EnhancedMangaFactory:
         
         self.logger.info("=" * 60)
     
-    def process_ocr_enhanced(self, ocr_lang='eng', confidence_threshold=60, 
+    def process_ocr_enhanced(self, ocr_lang='eng', confidence_threshold=60,
                            preprocessing_mode='medium', save_preprocessed=True):
-        """Enhanced OCR processing with multiple engines, plus per-panel confidence export"""
+        """Enhanced OCR processing with multiple engines, plus per-panel confidence export.
+        SmartPipelineManager may override preprocessing_mode to 'fast' for known clean sources.
+        """
         self.logger.info("Starting enhanced OCR processing")
-        
+
+        # ── SmartPipelineManager: fast_ocr hint ──────────────────────────
+        if self.pipeline_mgr:
+            try:
+                _url = getattr(self, '_current_download_url', None)
+                if _url:
+                    _strat = self.pipeline_mgr.get_strategy(_url)
+                    if _strat.get('fast_ocr', False):
+                        preprocessing_mode = 'fast'
+                        self.logger.info(
+                            "[SmartPipeline] fast_ocr=True — using 'fast' preprocessing mode"
+                        )
+            except Exception as _e:
+                self.logger.debug(f"SmartPipelineManager OCR hint failed: {_e}")
+
         # Try to use the new EnhancedOCRProcessor if available
         if ENHANCED_OCR_AVAILABLE:
             try:
                 self.logger.info("Using new EnhancedOCRProcessor for improved scene-by-scene processing")
-                
+
                 # Get config parameters (arguments override config)
                 config_mode = self.config.get('OCR', 'preprocessing_mode', fallback='medium')
                 config_save = self.config.getboolean('OCR', 'save_preprocessed', fallback=True)
-                
+
                 # Use provided args if they differ from default, otherwise fallback to config
-                # Note: This logic assumes the caller passes meaningful defaults. 
+                # Note: This logic assumes the caller passes meaningful defaults.
                 # Better: prioritize explicit args.
-                
+
                 final_mode = preprocessing_mode if preprocessing_mode != 'medium' else config_mode
-                
+
                 # Initialize enhanced OCR processor
                 ocr_processor = EnhancedOCRProcessor(logger=self.logger)
-                
+
                 # Process panels with enhanced OCR
                 result = ocr_processor.process_panels(
                     panels_dir=self.dirs['panels'],
@@ -5099,6 +5268,9 @@ class EnhancedMangaFactory:
             # If using GPU, too many threads might cause VRAM OOM, so cap it reasonable
             if self.easyocr_reader and torch.cuda.is_available():
                 max_workers = 4 # Cuda context switch limit
+            
+            # Optimize Tesseract execution when multi-threading
+            os.environ['OMP_THREAD_LIMIT'] = '1'
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all tasks
@@ -5190,21 +5362,22 @@ class EnhancedMangaFactory:
     def _preprocess_for_ocr(self, img):
         """Enhanced image preprocessing for better OCR"""
         try:
+            # Resize image if too large to dramatically speed up OCR and preprocessing
+            h, w = img.shape[:2]
+            max_dim = 1600
+            if max(h, w) > max_dim:
+                scale = max_dim / max(h, w)
+                img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+
             # Convert to grayscale
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             
-            # Denoise
-            gray = cv2.bilateralFilter(gray, 9, 75, 75)
+            # Fast denoise instead of extremely slow bilateralFilter
+            gray = cv2.medianBlur(gray, 3)
             
             # Enhance contrast using CLAHE
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             gray = clahe.apply(gray)
-            
-            # Sharpen the image
-            kernel = np.array([[-1, -1, -1],
-                             [-1,  9, -1],
-                             [-1, -1, -1]])
-            gray = cv2.filter2D(gray, -1, kernel)
             
             # Threshold to get clear text
             _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -5631,185 +5804,207 @@ def main():
     parser.add_argument('--analyze-scenes', action='store_true',
                         help='Enable scene type analysis (Day/Night/Action)')
     
-    # License management commands
-    parser.add_argument('--license', help='Install license key')
-    parser.add_argument('--license-info', action='store_true', help='Show license information')
-    parser.add_argument('--generate-demo-license', action='store_true', help='Generate demo license for testing')
-
-    # Minimal CLI: use safe defaults; advanced chunking/validation options removed
-    args = parser.parse_args()
+    # Concurrency
+    parser.add_argument('--concurrent', type=int, default=3,
+                        help='Max concurrent chapters to process (default: 3)')
     
-    # Handle license commands first (before factory initialization)
-    if args.license:
-        if license_validator.save_license(args.license):
-            print(f"✅ License key saved successfully to: {license_validator.license_file}")
-            # Validate the new license
-            is_valid, message = license_validator.validate_license()
-            if is_valid:
-                print(f"✅ License validated: {message}")
-            else:
-                print(f"❌ Invalid license: {message}")
-                return 1
-        else:
-            print(f"❌ Failed to save license key")
-            return 1
-        return 0
-    
-    if args.license_info:
-        print(f"🔐 MANGA FACTORY PRO - LICENSE INFORMATION")
-        print(f"Machine ID: {license_validator.machine_id}")
-        print(f"License file: {license_validator.license_file}")
+    if not urls:
+        print("❌ Please provide at least one URL using --url")
+        return 1
         
-        if license_validator.license_file.exists():
-            is_valid, message = license_validator.validate_license()
-            if is_valid:
-                print(f"✅ License Status: {message}")
-            else:
-                print(f"❌ License Status: {message}")
-        else:
-            print(f"❌ No license file found")
-        return 0
-    
-    if args.generate_demo_license:
-        demo_license = license_validator.generate_license_for_machine()
-        print(f"🧪 DEMO LICENSE FOR TESTING:")
-        print(f"License Key: {demo_license}")
-        print(f"Machine ID: {license_validator.machine_id}")
-        print(f"\n💾 To install:")
-        print(f"python3 manga_factory_enhanced.py --license {demo_license}")
-        return 0
-    
-    # Use webtoon-url if provided
-    url = args.webtoon_url or args.url
-    
     try:
-        # Initialize factory
-        factory = EnhancedMangaFactory(args.chapter_dir, args.config, mode=args.mode)
-        
-        # Download step
-        if not args.skip_download and url:
-            logger.info("=== DOWNLOAD PHASE ===")
-            # Periodic license check
-            factory._validate_license()
-            if not factory.download_chapter(url):
-                logger.error("Download failed, stopping process")
-                return 1
-        
-        # Clean step
-        if not args.skip_clean:
-            logger.info("=== CLEANING PHASE ===")
-            cleaned_files = factory.clean_pages_enhanced()
-            if not cleaned_files:
-                logger.error("Cleaning failed, stopping process")
-                return 1
-        
-        # Stitching step
-        if not args.skip_stitch:
-            logger.info("=== STITCHING PHASE ===")
-            stitch_result = factory.process_stitching_enhanced(
-                args.force_format,
-                extract_single_panels=args.stitch_extract_panels
-            )
-            # Stitching failure is not fatal - we can continue with individual images
-        
-        # Panel extraction step
-        if not args.skip_slice:
-            logger.info("=== PANEL EXTRACTION PHASE ===")
-            panels = factory.extract_panels_enhanced(skip_validation=False)
-            if not panels:
-                logger.error("Panel extraction failed, stopping process")
-                return 1
-        
-        # OCR step
-        if not args.skip_ocr:
-            logger.info("=== OCR PHASE ===")
-            # Periodic license check
-            factory._validate_license()
-            # Periodic license check
-            factory._validate_license()
-            text_files = factory.process_ocr_enhanced(
-                ocr_lang=args.ocr_lang,
-                confidence_threshold=args.ocr_confidence,
-                preprocessing_mode=args.ocr_mode,
-                save_preprocessed=args.save_preprocessed
-            )
-            if not text_files:
-                logger.warning("No text extracted from panels")
-        
-        # Character Learning Phase
-        if args.learn_characters and LEARNER_AVAILABLE:
-            logger.info("=== CHARACTER LEARNING PHASE ===")
-            try:
-                learner = CharacterLearner(output_dir=factory.chapter_dir, manga_name=factory.series_name or "unknown")
-                # We need access to valid panels. 
-                # Assuming factory.dirs['panels'] contains the valid ones.
-                valid_panels = list(factory.dirs['panels'].glob('*.png'))
-                total_faces = 0
-                for p in valid_panels:
-                    total_faces += learner.learn_from_panel(p, p.stem)
-                logger.info(f"Learned {total_faces} faces from {len(valid_panels)} panels")
+        if len(urls) > 1:
+            logger.info(f"=== INITIALIZING PIPELINE ORCHESTRATOR FOR {len(urls)} CHAPTERS ===")
+            from pipeline_orchestrator import PipelineOrchestrator
+            orchestrator = PipelineOrchestrator(max_concurrent_downloads=args.concurrent)
+            
+            def factory_creator(url, **kwargs):
+                # Unique dir per chapter url based on last slug
+                slug = url.strip('/').split('/')[-1] if '/' in url else 'chapter'
+                chapter_specific_dir = Path(kwargs['base_dir']) / slug
+                return EnhancedMangaFactory(str(chapter_specific_dir), kwargs['config_file'], mode=kwargs['mode'])
+            
+            kwargs = {
+                'base_dir': args.chapter_dir,
+                'config_file': args.config,
+                'mode': args.mode,
+                'skip_download': args.skip_download,
+                'skip_clean': args.skip_clean,
+                'skip_stitch': args.skip_stitch,
+                'skip_slice': args.skip_slice,
+                'skip_ocr': args.skip_ocr,
+                'force_format': args.force_format,
+                'stitch_extract_panels': args.stitch_extract_panels,
+                'ocr_lang': args.ocr_lang,
+                'ocr_confidence': args.ocr_confidence,
+                'ocr_mode': args.ocr_mode,
+                'save_preprocessed': args.save_preprocessed,
+                'ai_script': args.ai_script,
+                'gemini_api_key': args.gemini_api_key,
+                'chapter_title': args.chapter_title,
+                'series_context': args.series_context,
+                'emotion': args.emotion
+            }
+            
+            for u in urls:
+                orchestrator.submit_chapter(factory_creator, u, kwargs)
                 
-                # Run Clustering
-                learner.cluster_characters()
-                
-            except Exception as e:
-                logger.error(f"Character learning failed: {e}")
-        elif args.learn_characters:
-            logger.warning("Character learning module not available (cv2 missing?)")
+            results = orchestrator.wait_all()
+            successes = sum(1 for r in results if r['success'])
+            logger.info(f"=== BATCH PROCESSING COMPLETE: {successes}/{len(urls)} Successful ===")
+            return 0 if successes == len(urls) else 1
 
-        # Scene Analysis Phase (append to metadata)
-        # Scene Analysis Phase (append to metadata)
-        if args.analyze_scenes and LEARNER_AVAILABLE:
-            logger.info("=== SCENE ANALYSIS PHASE ===")
-            try:
-                scene_meta = {}
-                valid_panels = list(factory.dirs['panels'].glob('*.png'))
-                valid_panels.sort(key=lambda x: factory._natural_sort_key(x.name))
-                
-                logger.info(f"Analyzing scenes for {len(valid_panels)} panels...")
-                
-                for p in valid_panels:
-                    tags = SceneAnalyzer.analyze(p)
-                    if tags:
-                        scene_meta[p.name] = tags
-                        
-                # Save scene metadata
-                factory.dirs['script'].mkdir(parents=True, exist_ok=True)
-                scene_json_path = factory.dirs['script'] / 'scene_analysis.json'
-                with open(scene_json_path, 'w', encoding='utf-8') as f:
-                    json.dump(scene_meta, f, indent=2)
-                    
-                logger.info(f"Scene analysis completed. Metadata saved to {scene_json_path.name}")
-                
-            except Exception as e:
-                logger.error(f"Scene analysis failed: {e}") 
-        
-        # Script generation
-        logger.info("=== SCRIPT GENERATION PHASE ===")
-        # Always enable emotion analysis if requested
-        if args.ai_script:
-            # Use AI-enhanced script generation
-            script_path = factory.generate_ai_enhanced_script(
-                chapter_title=args.chapter_title or "",
-                series_context=args.series_context or "",
-                gemini_api_key=args.gemini_api_key
-            )
         else:
-            # Use standard script generation
-            script_path = factory.generate_script_enhanced(add_emotions=args.emotion)
-        
-        # Final statistics
-        stats = factory.get_processing_stats()
-        logger.info("=== PROCESSING COMPLETE ===")
-        logger.info("Final Statistics:")
-        for key, value in stats.items():
-            if isinstance(value, float):
-                logger.info(f"  {key}: {value:.1f}%")
+            # Traditional single run
+            u = urls[0] if urls else None
+            # Initialize factory
+            factory = EnhancedMangaFactory(args.chapter_dir, args.config, mode=args.mode)
+            
+            # Download step
+            if not args.skip_download and u:
+                logger.info("=== DOWNLOAD PHASE ===")
+
+                if not factory.download_chapter(u):
+                    logger.error("Download failed, stopping process")
+                    return 1
+            
+            # Clean step
+            if not args.skip_clean:
+                logger.info("=== CLEANING PHASE ===")
+                cleaned_files = factory.clean_pages_enhanced()
+                if not cleaned_files:
+                    logger.error("Cleaning failed, stopping process")
+                    return 1
+            
+            # Stitching step
+            if not args.skip_stitch:
+                logger.info("=== STITCHING PHASE ===")
+                stitch_result = factory.process_stitching_enhanced(
+                    args.force_format,
+                    extract_single_panels=args.stitch_extract_panels
+                )
+                # Stitching failure is not fatal - we can continue with individual images
+            
+            # Panel extraction step
+            if not args.skip_slice:
+                logger.info("=== PANEL EXTRACTION PHASE ===")
+                panels = factory.extract_panels_enhanced(skip_validation=False)
+                if not panels:
+                    logger.error("Panel extraction failed, stopping process")
+                    return 1
+            
+            # OCR step
+            if not args.skip_ocr:
+                logger.info("=== OCR PHASE ===")
+
+                text_files = factory.process_ocr_enhanced(
+                    ocr_lang=args.ocr_lang,
+                    confidence_threshold=args.ocr_confidence,
+                    preprocessing_mode=args.ocr_mode,
+                    save_preprocessed=args.save_preprocessed
+                )
+                if not text_files:
+                    logger.warning("No text extracted from panels")
+            
+            # Character Learning Phase
+            if args.learn_characters and LEARNER_AVAILABLE:
+                logger.info("=== CHARACTER LEARNING PHASE ===")
+                try:
+                    learner = CharacterLearner(output_dir=factory.chapter_dir, manga_name=getattr(factory, 'series_name', factory.chapter_dir.parent.name) or "unknown")
+                    # We need access to valid panels. 
+                    # Assuming factory.dirs['panels'] contains the valid ones.
+                    valid_panels = list(factory.dirs['panels'].glob('*.png'))
+                    total_faces = 0
+                    
+                    from concurrent.futures import ThreadPoolExecutor
+                    import os
+                    
+                    def _learn_fn(p):
+                        try:
+                            return learner.learn_from_panel(p, p.stem)
+                        except Exception as e:
+                            logger.debug(f"Error learning from panel {p.name}: {e}")
+                            return 0
+                            
+                    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 4)) as executor:
+                        face_counts = list(executor.map(_learn_fn, valid_panels))
+                        total_faces = sum(face_counts)
+                        
+                    logger.info(f"Learned {total_faces} faces from {len(valid_panels)} panels")
+                    
+                    # Run Clustering
+                    learner.cluster_characters()
+                    
+                except Exception as e:
+                    logger.error(f"Character learning failed: {e}")
+            elif args.learn_characters:
+                logger.warning("Character learning module not available (cv2 missing?)")
+
+            # Scene Analysis Phase (append to metadata)
+            if args.analyze_scenes and LEARNER_AVAILABLE:
+                logger.info("=== SCENE ANALYSIS PHASE ===")
+                try:
+                    scene_meta = {}
+                    valid_panels = list(factory.dirs['panels'].glob('*.png'))
+                    valid_panels.sort(key=lambda x: factory._natural_sort_key(x.name))
+                    
+                    logger.info(f"Analyzing scenes for {len(valid_panels)} panels...")
+                    
+                    from concurrent.futures import ThreadPoolExecutor, as_completed
+                    import os
+                    
+                    def _analyze_fn(p):
+                        try:
+                            tags = SceneAnalyzer.analyze(p)
+                            return p.name, tags
+                        except Exception as e:
+                            logger.debug(f"Error analyzing scene {p.name}: {e}")
+                            return p.name, None
+                            
+                    with ThreadPoolExecutor(max_workers=min(10, os.cpu_count() or 4)) as executor:
+                        futures = {executor.submit(_analyze_fn, p): p for p in valid_panels}
+                        for future in as_completed(futures):
+                            name, tags = future.result()
+                            if tags:
+                                scene_meta[name] = tags
+                            
+                    # Save scene metadata
+                    factory.dirs['script'].mkdir(parents=True, exist_ok=True)
+                    scene_json_path = factory.dirs['script'] / 'scene_analysis.json'
+                    with open(scene_json_path, 'w', encoding='utf-8') as f:
+                        json.dump(scene_meta, f, indent=2)
+                        
+                    logger.info(f"Scene analysis completed. Metadata saved to {scene_json_path.name}")
+                    
+                except Exception as e:
+                    logger.error(f"Scene analysis failed: {e}") 
+            
+            # Script generation
+            logger.info("=== SCRIPT GENERATION PHASE ===")
+            # Always enable emotion analysis if requested
+            if args.ai_script:
+                # Use AI-enhanced script generation
+                script_path = factory.generate_ai_enhanced_script(
+                    chapter_title=args.chapter_title or "",
+                    series_context=args.series_context or "",
+                    gemini_api_key=args.gemini_api_key
+                )
             else:
-                logger.info(f"  {key}: {value}")
-        
-        return 0
-        
+                # Use standard script generation
+                script_path = factory.generate_script_enhanced(add_emotions=args.emotion)
+            
+            # Final statistics
+            stats = factory.get_processing_stats()
+            logger.info("=== PROCESSING COMPLETE ===")
+            logger.info("Final Statistics:")
+            for key, value in stats.items():
+                if isinstance(value, float):
+                    logger.info(f"  {key}: {value:.1f}%")
+                else:
+                    logger.info(f"  {key}: {value}")
+            
+            return 0
+            
     except Exception as e:
         logger.error(f"Processing failed: {e}")
         return 1

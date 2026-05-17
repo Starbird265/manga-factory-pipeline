@@ -28,6 +28,7 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "scroll_needed": True,
         "lazy_attr": "data-src",
         "cdn": "cdn.zinmanga1.com",
+        "best_method": "playwright",
         "notes": "WP-manga theme. Images lazy-loaded via data-src. No Cloudflare.",
     },
     # Generic WP-manga theme sites (same selectors as topmanhua)
@@ -42,6 +43,7 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "requires_js": True,
         "scroll_needed": True,
         "lazy_attr": "data-src",
+        "best_method": "playwright",
     },
     "mangatx.org": {
         "name": "MangaTX",
@@ -54,6 +56,7 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "requires_js": True,
         "scroll_needed": True,
         "lazy_attr": "data-src",
+        "best_method": "undetected_chrome",
     },
     "webtoon.com": {
         "name": "Webtoon (generic)",
@@ -65,6 +68,7 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "cloudflare": False,
         "requires_js": True,
         "scroll_needed": True,
+        "best_method": "playwright",
     },
     "webtoons.com": {
 
@@ -78,6 +82,7 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "cloudflare": False,
         "requires_js": True,
         "scroll_needed": True,
+        "best_method": "playwright",
         "notes": "Official Webtoons — Selenium required",
     },
     "manhuaus.com": {
@@ -90,6 +95,7 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "cloudflare": True,
         "requires_js": True,
         "scroll_needed": True,
+        "best_method": "undetected_chrome",
         "notes": "Cloudflare protected — multi-layer fallback",
     },
     "mangaread.org": {
@@ -102,18 +108,22 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "cloudflare": False,
         "requires_js": False,
         "scroll_needed": False,
+        "best_method": "requests",
         "notes": "Simple requests-based scraper works",
     },
     "manhwaclan.com": {
         "name": "ManhwaClan",
         "image_selectors": [
+            ".reading-content img.wp-manga-chapter-img",
             ".reading-content img",
             ".page-break img",
         ],
         "cloudflare": True,
         "requires_js": True,
         "scroll_needed": True,
-        "notes": "Needs undetected_chromedriver",
+        "lazy_attr": "data-src",
+        "best_method": "undetected_chrome",
+        "notes": "WP-manga theme with Cloudflare. Needs undetected_chromedriver.",
     },
     "mangakakalot.com": {
         "name": "Mangakakalot",
@@ -124,6 +134,7 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "cloudflare": False,
         "requires_js": False,
         "scroll_needed": False,
+        "best_method": "requests",
     },
     "mangadex.org": {
         "name": "MangaDex",
@@ -134,6 +145,7 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "cloudflare": False,
         "requires_js": True,
         "scroll_needed": True,
+        "best_method": "playwright",
     },
 }
 

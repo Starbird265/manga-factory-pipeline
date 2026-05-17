@@ -4,12 +4,17 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+*.egg-info/
+dist/
+build/
 
 # Environments
 venv/
 manga_venv/
 venv_backup/
 manga_factory_clean/
+.env
+.env.local
 
 # macOS
 .DS_Store
@@ -33,6 +38,7 @@ manga_pdfs/
 ml_training_data/
 test_out/
 test_output/
+real_test_output/
 shinobi/
 black/
 bubbles/
@@ -46,8 +52,14 @@ strips/
 manga_pipeline/ml_models/
 manga_pipeline/__pycache__/
 manga_pipeline/topmanhua_full_test/
+manga_pipeline/test_manhwaclan/
 manga_pipeline/manga_pdfs/
 manga_pipeline/*.log
+
+# Runtime data files (regenerated automatically)
+pipeline_stats.json
+proxy_stats.json
+manga_pipeline/proxy_stats.json
 
 # Script runtime data
 script/
@@ -57,3 +69,8 @@ script/
 .idea/
 .vscode/
 *.swp
+*.swo
+*~
+
+# Cookie data (sensitive)
+.manga_cookies/

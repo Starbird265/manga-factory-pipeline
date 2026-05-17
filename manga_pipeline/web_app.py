@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # Import enhanced pipeline
-from manga_factory_enhanced import EnhancedMangaFactory, license_validator
+from manga_factory_enhanced import EnhancedMangaFactory
 
 # License manager disabled for open source version
 LICENSE_MANAGER = None

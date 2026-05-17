@@ -1,12 +1,35 @@
-PyQt6
-opencv-python
-numpy
-pytesseract
-Pillow
-requests
-beautifulsoup4
-easyocr
-text2emotion
-transformers
-peft
-img2pdf
+# ============================================
+# Manga Factory Pipeline — Dependencies
+# ============================================
+
+# ── Core ──────────────────────────────────
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+Pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# ── OCR ───────────────────────────────────
+pytesseract>=0.3.10
+# easyocr>=1.7.0              # Optional: ML-based OCR (heavier, more accurate)
+
+# ── Browser Automation ────────────────────
+playwright>=1.40.0
+playwright-stealth>=1.0.6
+undetected-chromedriver>=3.5.0
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+
+# ── PDF Generation ────────────────────────
+img2pdf>=0.5.0
+
+# ── AI & NLP (optional) ──────────────────
+# transformers>=4.35.0        # Optional: for advanced text models
+# peft>=0.7.0                 # Optional: parameter-efficient fine-tuning
+# text2emotion>=0.0.5         # Optional: emotion analysis
+
+# ── Desktop GUI (optional) ───────────────
+# PyQt6>=6.5.0                # Optional: desktop GUI interface
+
+# ── ML/Data Pipeline (optional) ──────────
+# torch>=2.0.0                # Optional: PyTorch for ML features
