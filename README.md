@@ -7,6 +7,16 @@
 
 ---
 
+## ✨ What's New in v2.1
+
+- **Inkbit, The Pixel Pet Companion:** A fully animated pixel-art desktop pet (`PixelPetStage`) integrated directly into the PyQt6 GUI. Inkbit dynamically reacts to pipeline stages (idling, running, waving, reviewing) as your jobs progress.
+- **Smart URL Spidering:** You can now provide a single base chapter URL and the system will automatically auto-resolve sequential chapters directly from the site's DOM navigation tree, eliminating the need to guess ID increments.
+- **Advanced Stitching & Memory Mapped Processing:** `advanced_stitcher.py` handles theoretically limitless vertical strips using `np.memmap` disk-backing, guarantees exact non-overlapping PDF parts, reconstructable source mapping, and video-ready scene bounding boxes without breaking character bodies.
+- **Context-Aware Dialogue Memory:** `dialogue_extractor.py` builds persistent series memory (`character_profiles.json`), tracking characters across chapters. It features dark-scene OCR, fallback to EasyOCR, and maintains a structured `chapter_dialogue.json` for AI script mapping.
+- **Enhanced PyQt6 Production Desk:** Completely rewritten desktop UI with robust multi-threading, live terminal logs, artifact quick-access buttons, and a visual batch queue that isolates Chrome profiles per slot.
+
+---
+
 ## 📖 Overview
 
 **Manga Factory** is a modular, fault-tolerant pipeline that automates the entire workflow from content discovery to final output generation. It combines multi-layer browser automation, ML-powered site analysis, intelligent proxy management, and advanced image processing into a single cohesive system.
@@ -143,6 +153,32 @@ Implements **Upper Confidence Bound (UCB)** multi-armed bandit for proxy selecti
 
 ---
 
+## 🔍 Deep Dive into Advanced Modules
+
+To truly understand the power of v2.1, here is a detailed breakdown of the three major subsystems introduced in this update:
+
+### 1. Advanced Stitcher: Memory Mapping & Video Scenes
+Processing continuous webtoons that stretch for tens of thousands of pixels vertically often leads to catastrophic RAM exhaustion. The `AdvancedStitcher` resolves this entirely.
+- **`np.memmap` Disk-Backing:** Instead of holding the entire stitched canvas in memory, the stitcher automatically falls back to an `np.memmap` disk-backed numpy array when the estimated canvas size exceeds available RAM thresholds. This allows theoretically infinite vertical strips.
+- **Deterministic Overlap Resolution:** It doesn't just stack images; it uses edge matching to calculate exact pixel overlaps, trimming redundant edges perfectly.
+- **Reconstructable Stitch Manifest:** Every operation is logged into `stitch_manifest.json`. You can see exactly which source file contributed to which Y-coordinate in the master strip, the calculated `seam_score`, and exactly how many pixels were shaved off in the overlap.
+- **Video Scene Framing:** Rather than simple geometric panel cuts, the stitcher detects natural scene breaks. It exports padded, centered frames locked to exactly 16:9, 1:1, or 4:5 aspect ratios, perfect for automated TikTok/YouTube Shorts generation without cutting off characters or action sequences.
+
+### 2. Dialogue Extractor: Cross-Chapter Series Memory
+A major flaw in traditional OCR is context amnesia between chapters. The new `DialogueExtractor` brings persistent, evolving memory to the pipeline.
+- **`SeriesCharacterContext` Engine:** When processing a chapter, the pipeline doesn't just read words. It attempts to isolate recurring faces, linking them to nearby dialogue boxes, and stores these visual signatures in `character_profiles.json` inside the root series folder.
+- **Multi-Chapter Speaker Resolution:** If a character's face is recognized in Chapter 5 based on a signature learned in Chapter 1, their dialogue is correctly attributed automatically.
+- **Dark-Scene OCR Recovery:** Standard OCR fails on dark/night scenes (white text on black/grey backgrounds). The extractor detects average pixel luminance in a bounding box and dynamically triggers an inverted adaptive-thresholding pass if a dark scene is detected, drastically reducing hallucinated text.
+- **Structured LLM Prompting:** All this data (text, bounding box geometry, speaker ID, confidence) is dumped into `chapter_dialogue.json`. This provides rich, structured context to local (Ollama) or remote (Gemini) LLMs to generate highly accurate, scene-aware narrative scripts.
+
+### 3. Pixel Pet Production Desk (PyQt6)
+The GUI has been completely rewritten to move away from rigid terminal constraints into a rich, reactive production environment.
+- **Inkbit, the Pixel Pet Stage:** The UI features a dedicated, animated stage featuring Inkbit. As the multi-threaded backend moves through phases (Downloading → Stitching → OCR → Review), Inkbit dynamically changes animations (`running`, `jumping`, `idling`, `waving`) to give you an instant visual read on the pipeline's status.
+- **Intelligent URL Spidering:** Through the `_resolve_chapters` mechanism, you no longer have to manually input batch URLs or guess incrementing IDs. Simply paste the reader's index URL, and the GUI will crawl the DOM to queue sequential chapters natively.
+- **Thread-Safe Artifact Actions:** The GUI isolates the heavy browser automation in background threads. At any time, you can click action buttons to instantly open generated PDFs, JSON manifests, or the raw output folders without interrupting the active web scrapers.
+
+---
+
 ## ⚡ Key Features
 
 ### Scraping & Bypass
@@ -153,26 +189,26 @@ Implements **Upper Confidence Bound (UCB)** multi-armed bandit for proxy selecti
 - 🚫 **Ad/popup blocking** with parallel monitoring thread
 
 ### Image Processing
-- 🖼️ **Reconstructable stitching** with overlap detection, a full strip, exact strip parts, and a JSON manifest
-- ✂️ **Full-strip panel cutting** — panel candidates are derived once from the completed strip at low-detail boundaries
-- 🎬 **Video-ready scene cuts** — dark-aware full-strip extraction outputs 16:9, 1:1, or 4:5 frames
+- 🖼️ **Reconstructable Stitching (Advanced Stitcher):** Safely handles giant webtoons utilizing `np.memmap` memory mapping. Computes overlaps deterministically and generates a JSON manifest (`stitch_manifest.json`) tracking seam scores and exact source offsets.
+- ✂️ **Exact Part Splitting:** Guarantees non-overlapping, PDF-safe chunking from the master strip.
+- 🎬 **Video-Ready Scene Extraction:** Detects 16:9, 1:1, or 4:5 bounding boxes for TikTok/YouTube Shorts. Extracts scenes natively while preserving full body action and facial integrity using contour analysis.
 - ⚔️ **Action-beat awareness** — fight strips can split on internal shifts in focus, motion, saturation, and edge energy even without white gutters
 - 🎥 **Scene-preserving framing** — every video frame keeps the complete detected strip scene, so faces, full bodies, action poses, buildings, and background context are not cut away; blurred fill supplies the standard video shape
 - 🎯 **Panel validation** removes blank, tiny, extreme, and duplicate cuts while archiving rejects for review
 - 🧹 **Adaptive cleaning** — denoising, border removal, alignment correction
 
 ### Text & Script
-- 📝 **Dual OCR** — Tesseract (fast) + EasyOCR (accurate, optional)
+- 📝 **Dual OCR Architecture** — Uses Tesseract (fast pass) and optionally EasyOCR (`ENABLE_EASYOCR=1`) for robust text extraction on complex fonts.
 - 🌙 **Dark-scene OCR** — inverted and adaptive passes recover text on night and black backgrounds
-- 💬 **Dialogue-box mapping** — groups OCR words into boxes and records dialogue, narration, SFX, speaker, and confidence
-- 👥 **Per-series character memory** — each manga keeps isolated profiles that grow across its chapters
+- 💬 **Context-Aware Dialogue Mapping** — Uses the `DialogueExtractor` to group OCR words into boxes, map sound effects (SFX) and narrations, and predict speaker identity based on bounding box geometry.
+- 👥 **Persistent Series Memory (`SeriesCharacterContext`)** — Generates and tracks character signatures across chapters (stored in `character_profiles.json`). Recognizes recurring visual speakers across the entire manga series automatically.
 - 🤖 **AI script generation** via Gemini API or local Ollama
 - 😊 **Emotion analysis** using text2emotion for scene tone detection
 
 ### Output
 - 📄 **Multipage PDF generation** from exact strip parts (`img2pdf`, with a built-in Pillow fallback)
 - 🌐 **Built-in web UI** — retro pixelated interface with live progress
-- 🖥️ **Desktop production desk** via PyQt6 with a real backend terminal and artifact buttons
+- 🖥️ **PyQt6 Desktop Production Desk** — Features multithreaded queues, visual artifacts buttons, URL auto-spidering (`_resolve_chapters`), and an animated pixel-art companion (**Inkbit** / `PixelPetStage`) that visually mirrors backend states (running, jumping, reviewing).
 - 📊 **Processing statistics** and ML intelligence persistence
 - ⚡ **Parallel chapter jobs** — up to three isolated browser/account profiles share thread-safe UCB learning
 
