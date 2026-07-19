@@ -84,6 +84,8 @@ manga_factory_project/
 │   ├── popup_closer.py                 # Parallel ad popup thread
 │   ├── html_scraper.py                 # Static HTML image extraction
 │   │
+│   ├── advanced_stitcher.py            # Full strip, exact parts, panels, video scenes
+│   ├── dialogue_extractor.py           # Dark-scene OCR, speakers, series memory
 │   ├── pdf_generator.py                # Chapter → PDF conversion
 │   ├── ai_script_generator.py          # Gemini/Ollama narrative scripts
 │   ├── comprehensive_test.py           # Integration test suite
@@ -151,21 +153,28 @@ Implements **Upper Confidence Bound (UCB)** multi-armed bandit for proxy selecti
 - 🚫 **Ad/popup blocking** with parallel monitoring thread
 
 ### Image Processing
-- 🖼️ **Intelligent stitching** with overlap detection and de-duplication
-- ✂️ **Scene-aware chunking** — splits strips at panel boundaries (not arbitrary heights)
-- 🎯 **Panel extraction** using OpenCV contour detection
+- 🖼️ **Reconstructable stitching** with overlap detection, a full strip, exact strip parts, and a JSON manifest
+- ✂️ **Full-strip panel cutting** — panel candidates are derived once from the completed strip at low-detail boundaries
+- 🎬 **Video-ready scene cuts** — dark-aware full-strip extraction outputs 16:9, 1:1, or 4:5 frames
+- ⚔️ **Action-beat awareness** — fight strips can split on internal shifts in focus, motion, saturation, and edge energy even without white gutters
+- 🎥 **Scene-preserving framing** — every video frame keeps the complete detected strip scene, so faces, full bodies, action poses, buildings, and background context are not cut away; blurred fill supplies the standard video shape
+- 🎯 **Panel validation** removes blank, tiny, extreme, and duplicate cuts while archiving rejects for review
 - 🧹 **Adaptive cleaning** — denoising, border removal, alignment correction
 
 ### Text & Script
 - 📝 **Dual OCR** — Tesseract (fast) + EasyOCR (accurate, optional)
+- 🌙 **Dark-scene OCR** — inverted and adaptive passes recover text on night and black backgrounds
+- 💬 **Dialogue-box mapping** — groups OCR words into boxes and records dialogue, narration, SFX, speaker, and confidence
+- 👥 **Per-series character memory** — each manga keeps isolated profiles that grow across its chapters
 - 🤖 **AI script generation** via Gemini API or local Ollama
 - 😊 **Emotion analysis** using text2emotion for scene tone detection
 
 ### Output
-- 📄 **PDF generation** from stitched strips (via img2pdf)
+- 📄 **Multipage PDF generation** from exact strip parts (`img2pdf`, with a built-in Pillow fallback)
 - 🌐 **Built-in web UI** — retro pixelated interface with live progress
-- 🖥️ **Desktop GUI** via PyQt6
+- 🖥️ **Desktop production desk** via PyQt6 with a real backend terminal and artifact buttons
 - 📊 **Processing statistics** and ML intelligence persistence
+- ⚡ **Parallel chapter jobs** — up to three isolated browser/account profiles share thread-safe UCB learning
 
 ---
 
@@ -182,6 +191,7 @@ Implements **Upper Confidence Bound (UCB)** multi-armed bandit for proxy selecti
 | Mangakakalot | ❌ | Requests | Simple SSR |
 | MangaRead | ❌ | Requests | Basic HTML |
 | ZinManga | ❌ | Playwright | WP-manga theme |
+| RoliaScan | Dynamic API | Requests / UC | Resolves chapter content through the chapter-content endpoint |
 | **Unknown sites** | Auto-detect | Auto-escalate | MLSiteLearner + generic selectors |
 
 ---
@@ -206,15 +216,35 @@ playwright install chromium
 # 5. Run via CLI
 python run_app.py "https://example-manga-site.com/chapter/1"
 
-# 6. Or launch the web UI
+# 6. Launch the desktop GUI
+python manga_pipeline/manga_factory_gui.py
+
+# 7. Or launch the web UI
 python -m manga_pipeline.web_app
 ```
 
-> For detailed setup instructions, see **[SETUP.md](SETUP.md)**.
+> For complete setup instructions, see **[SETUP.md](SETUP.md)**. For the exact GUI, batch, scene-rebuild, and troubleshooting commands, see **[HOW_TO_USE.md](HOW_TO_USE.md)**.
 
 ---
 
 ## 🖥️ Usage
+
+### Desktop GUI
+
+```bash
+python manga_pipeline/manga_factory_gui.py
+```
+
+The desktop GUI is the recommended local workflow:
+
+- Paste one exact chapter URL per line, import a `.txt`/`.csv` URL list, or use `{chapter}` in a URL template for a batch. With one reader URL, set **Chapters** and use **Resolve Chapters** to pull the site's real chapter navigation rather than guessing IDs. **Preview Queue** shows the real jobs before the run starts.
+- Set **Parallel** to `1`-`3` and choose a retry count. Each active slot uses its own persistent profile (`account_1`, `account_2`, and `account_3` by default).
+- Keep **Stitch strips** enabled to produce the full strip, exact parts, and stitch manifest.
+- Keep **Cut panels from full strip** enabled to derive final, video-ready scene panels from `complete_manga_strip.png`.
+- The desktop queue reports each chapter as queued, active, complete, failed, or stopped while the terminal displays the real Python logger stream. **Open Panels**, **Open Scenes**, **Open Full Strip**, **Open PDF**, **Open Script**, **Open Characters**, and the Library actions open generated files directly.
+- Inkbit, the pixel production companion, changes behavior from the real worker stage: fetching pages, cleaning, stitching, scene cutting, dialogue/context work, scripts, PDF binding, completion, stops, and errors.
+- **Build character context** and **Scene + speaker map** use the same structured chapter model; repeated runs reuse its cached output.
+- **Stop After Step** lets active browsers finish their current pipeline phase before stopping.
 
 ### CLI Mode
 
@@ -265,23 +295,44 @@ The web interface provides:
 
 ## 📂 Output Structure
 
-Each processed chapter creates a standardized directory:
+Each series keeps its own persistent character context, while every processed chapter keeps detailed OCR and script artifacts:
 
 ```
-MangaFactory/<series-name>/<chapter-number>/
-├── 00_raw/              # Original downloaded images
-├── 01_clean/            # Cleaned and processed images
-├── 02_stitched/
-│   ├── complete_manga_strip.png    # Full vertical strip
-│   ├── stitched_part_001.png       # Scene-chunked segments
-│   ├── stitched_part_002.png
-│   └── panels/                     # Individual extracted panels
-├── 03_text/
-│   └── transcripts/     # OCR text output per panel
-├── panels/              # Validated panels
-├── script/              # Generated narrative scripts
-└── manga_factory_enhanced.log
+MangaFactory/<series-name>/
+├── series_context/
+│   └── character_profiles.json     # Context accumulated only for this manga
+└── Chapter_<num>/
+    ├── 00_raw/                      # Original downloaded images
+    ├── 01_clean/                    # Cleaned and processed images
+    ├── 02_stitched/
+    │   ├── complete_manga_strip.png # Full vertical strip
+    │   ├── stitch_manifest.json     # Source order, overlaps, cuts, and offsets
+    │   ├── parts/                   # Exact non-overlapping PDF-safe strip parts
+    │   ├── individual/              # Reconstructable contribution per source image
+    │   ├── panels/                  # Archival full-strip cuts when requested
+    │   └── video_scenes/            # Standard-shape scene frames for video workflows
+    │       └── video_scene_manifest.json
+    ├── panels/                      # Filtered, renumbered final scenes used by OCR
+    ├── filtered/panel_validation/   # Rejected cuts grouped by reason
+    ├── 03_text/
+    │   ├── transcripts/             # Speaker-prefixed text per panel
+    │   └── dialogue/                # Text boxes, scene data, faces, confidence
+    ├── script/
+    │   ├── chapter_dialogue.json    # Complete structured chapter model
+    │   ├── characters.json          # Chapter snapshot of series profiles
+    │   ├── chapter.txt              # Panel-aware readable script
+    │   ├── clean_chapter.txt        # Metadata-free script
+    │   ├── spoken_dialogue.txt      # Dialogue-only script
+    │   └── panel_validation.json
+    ├── Chapter_<num>.pdf            # Multipage chapter PDF
+    └── manga_factory_enhanced.log
 ```
+
+PDF generation prefers `02_stitched/parts/` so very tall webtoons become practical multipage documents. If `img2pdf` is unavailable, Pillow is used automatically; a missing optional PDF package no longer fails the chapter.
+
+Video scene extraction always starts from `02_stitched/complete_manga_strip.png`. It detects bright, mixed, night, and black-background scene bands; action-beat candidates split fight strips even without white gutters; rejects separator scraps; and writes frames as 1600x900, 1080x1080, or 1080x1350. Each output preserves the entire detected scene slice and uses blurred padding to fit the standard video shape rather than zooming into a face or cutting off a body. `video_scene_manifest.json` records the original scene range, full-scene crop box, fitted-artwork box, padding, subject coverage, visual density, bubble area ratio, action-beat candidates, and partial bubble counts. Speech bubbles are optional for video scenes; scene composition favors faces, complete characters, fighting motion, buildings, and detailed backgrounds.
+
+Tesseract performs the default structured OCR passes. Set `ENABLE_EASYOCR=1` to allow EasyOCR as an additional fallback when the selected Tesseract variants return weak text.
 
 ---
 
@@ -307,9 +358,9 @@ python manga_pipeline/real_site_test.py
 2. Ingestion     → UnifiedBypassEngine retrieves images → 00_raw/
 3. Refinement    → OpenCV cleaning & normalization → 01_clean/
 4. Integration   → Intelligent stitching with overlap detection → 02_stitched/
-5. Extraction    → Contour-based panel detection → panels/
+5. Extraction    → Full-strip video scene cuts + quality filters → panels/
 6. Intelligence  → OCR text extraction + AI script generation → script/
-7. Delivery      → PDF generation → manga_pdfs/
+7. Delivery      → Multipage PDF generation → Chapter_<num>.pdf
 ```
 
 ---

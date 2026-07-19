@@ -62,7 +62,8 @@ class MLSiteLearner:
         # If the top score is very low, we might not have found manga pages
         top_score = scored_images[0]['score']
         if top_score < 30:
-            logger.warning("ML Site Learner found images, but max confidence is very low.")
+            logger.warning("ML Site Learner found images, but max confidence is too low to trust.")
+            return []
         
         # Keep images that score within 40% of the top score, minimum threshold 20
         threshold = max(20, top_score * 0.6)
@@ -93,7 +94,7 @@ class MLSiteLearner:
         
         # Exclude common non-manga images
         exclude_keywords = [
-            'logo', 'avatar', 'icon', 'banner', 'ad', 'button', 'background',
+            'logo', 'avatar', 'icon', 'banner', 'button', 'background',
             'zeropixel', 'pixel', 'tracking', 'spacer', 'transparent', 'thumb', 'footer', 'header'
         ]
         
@@ -102,6 +103,17 @@ class MLSiteLearner:
             
         class_str = " ".join(img_tag.get('class', [])).lower()
         if any(keyword in class_str for keyword in exclude_keywords):
+            return True
+
+        # A bare "ad" substring wrongly excludes legitimate paths such as
+        # "/upload/". Only reject the common ad-route and ad-server markers.
+        if any(marker in url_lower for marker in ('/ad/', '/ads/', 'adserver', 'advertis')):
+            return True
+
+        # SVGs in readers are almost always reaction icons, UI controls, or
+        # challenge artwork. They are not processable manga pages.
+        path_without_query = url_lower.split('?', 1)[0]
+        if path_without_query.endswith('.svg') or 'image/svg+xml' in url_lower:
             return True
             
         if not any(ext in url_lower.split('?')[0] for ext in ['.jpg', '.jpeg', '.png', '.webp']):
@@ -132,6 +144,23 @@ class MLSiteLearner:
         # FACTOR 3: Attributes indicating lazy loading (manga sites love lazy loading)
         if img_tag.get('data-src') or img_tag.get('data-lazy-src'):
             score += 30
+
+        # Modern SSR readers often mark chapter pages explicitly instead of
+        # using WordPress-style classes. These attributes are much stronger
+        # evidence than generic page position or a UI icon's filename.
+        if img_tag.has_attr('data-reader-page-image'):
+            score += 80
+        if img_tag.has_attr('data-reader-index'):
+            score += 40
+
+        # Real reader pages normally declare substantial rendered dimensions.
+        try:
+            width = int(img_tag.get('width') or 0)
+            height = int(img_tag.get('height') or 0)
+            if width >= 400 and height >= 600:
+                score += 25
+        except (TypeError, ValueError):
+            pass
             
         # FACTOR 4: Parent containers
         parent = img_tag.parent

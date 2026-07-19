@@ -1,0 +1,142 @@
+{
+  "ok": true,
+  "frames_root": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/qa/rows/failed/frames",
+  "states": [
+    "failed"
+  ],
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "failed",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/qa/rows/failed/frames/failed/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 26019,
+          "bbox": [
+            10,
+            5,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 315
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/qa/rows/failed/frames/failed/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 26492,
+          "bbox": [
+            9,
+            5,
+            182,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 265
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/qa/rows/failed/frames/failed/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25114,
+          "bbox": [
+            13,
+            5,
+            179,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 218
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/qa/rows/failed/frames/failed/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24921,
+          "bbox": [
+            14,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 229
+        },
+        {
+          "index": 4,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/qa/rows/failed/frames/failed/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22866,
+          "bbox": [
+            5,
+            21,
+            187,
+            187
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 287
+        },
+        {
+          "index": 5,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/qa/rows/failed/frames/failed/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23333,
+          "bbox": [
+            18,
+            5,
+            173,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 297
+        },
+        {
+          "index": 6,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/qa/rows/failed/frames/failed/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22850,
+          "bbox": [
+            22,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 245
+        },
+        {
+          "index": 7,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/qa/rows/failed/frames/failed/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24623,
+          "bbox": [
+            15,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 288
+        }
+      ]
+    }
+  ]
+}

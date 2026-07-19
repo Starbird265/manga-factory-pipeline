@@ -15,6 +15,19 @@ logger = logging.getLogger(__name__)
 # Keys: domain fragments (lowercase)  Values: site config dict
 # ------------------------------------------------------------------
 _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
+    "vortexscans.org": {
+        "name": "VortexScans",
+        "image_selectors": [
+            "img[data-reader-page-image]",
+            "img[data-reader-index]",
+            "main img.h-auto.w-full.object-contain",
+        ],
+        "cloudflare": False,
+        "requires_js": False,
+        "scroll_needed": False,
+        "best_method": "requests",
+        "notes": "SSR reader. Full chapter pages use data-reader-page-image and are served from storage.vortexscans.org.",
+    },
     "topmanhua.fan": {
         "name": "TopManhua",
         "image_selectors": [
@@ -147,11 +160,34 @@ _KNOWN_SITES: Dict[str, Dict[str, Any]] = {
         "scroll_needed": True,
         "best_method": "playwright",
     },
+    "roliascan.com": {
+        "name": "RoliaScan",
+        "image_selectors": [
+            "#chapter-images-container img.comic-image",
+            "#chapter-images-container img",
+            ".comic-image-container img",
+            "img.comic-image",
+            "img[data-src]",
+        ],
+        "cloudflare": False,
+        "requires_js": False,
+        "scroll_needed": False,
+        "best_method": "requests",
+        "chapter_content_endpoint": "/auth/chapter-content?chapter_id={chapter_id}",
+        "chapter_id_patterns": [
+            r'data-chapter-id=["\'](\d+)["\']',
+            r'"chapter_id"\s*:\s*(\d+)',
+        ],
+        "chapter_images_key": "images",
+        "notes": "Mangapeak reader. Chapter images are returned by /auth/chapter-content JSON using body data-chapter-id.",
+    },
 }
 
 # Generic fallback selectors tried for unknown sites (ranked by specificity)
 GENERIC_IMAGE_SELECTORS = [
     # Manga/webtoon-specific
+    "img[data-reader-page-image]",
+    "img[data-reader-index]",
     ".reading-content img",
     ".read-container img",
     ".chapter-content img",
@@ -239,7 +275,7 @@ class WebsiteDatabase:
             "name": domain,
             "image_selectors": GENERIC_IMAGE_SELECTORS,
             "cloudflare": False,   # unknown — we try anyway
-            "requires_js": True,   # assume JS needed for safety
+            "requires_js": False,  # always try the fast SSR path before a browser
             "scroll_needed": True,
             "notes": "Auto-detected generic config",
             "is_unknown": True,

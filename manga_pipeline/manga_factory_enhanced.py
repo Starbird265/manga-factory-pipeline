@@ -48,6 +48,7 @@ Image.MAX_IMAGE_PIXELS = None
 import glob
 from pathlib import Path
 import logging
+import threading
 import argparse
 import configparser
 import hashlib
@@ -118,6 +119,17 @@ except (ImportError, ModuleNotFoundError):
     except (ImportError, ModuleNotFoundError):
         ENHANCED_OCR_AVAILABLE = False
 
+# Structured dialogue and per-series character context (optional)
+try:
+    from .dialogue_extractor import DialogueExtractor
+    DIALOGUE_EXTRACTOR_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    try:
+        from dialogue_extractor import DialogueExtractor
+        DIALOGUE_EXTRACTOR_AVAILABLE = True
+    except (ImportError, ModuleNotFoundError):
+        DIALOGUE_EXTRACTOR_AVAILABLE = False
+
 # Character learner removed (ML training not needed)
 LEARNER_AVAILABLE = False
 
@@ -164,6 +176,11 @@ try:
 except ImportError:
     MLSiteLearner = None
     ML_SITE_LEARNER_AVAILABLE = False
+
+try:
+    from advanced_stitcher import AdvancedStitcher
+except ImportError:
+    from .advanced_stitcher import AdvancedStitcher
 
 
 
@@ -478,39 +495,48 @@ class SimpleStitching:
             return {'success': False, 'format_detected': None, 'output_files': []}
 
 # Enhanced logging setup
+_LOG_SETUP_LOCK = threading.RLock()
+
+
 def setup_logging(chapter_dir=None, log_level=logging.INFO):
     """Setup enhanced logging with both file and console output"""
-    if chapter_dir:
-        log_file = os.path.join(chapter_dir, 'manga_factory_enhanced.log')
-    else:
-        log_file = 'manga_factory_enhanced.log'
-    
-    # Clear existing handlers
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
-    
-    # Create formatters
-    detailed_formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
-    )
-    simple_formatter = logging.Formatter("%(levelname)s - %(message)s")
-    
-    # File handler with detailed logs
-    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(detailed_formatter)
-    
-    # Console handler with simple logs
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(log_level)
-    console_handler.setFormatter(simple_formatter)
-    
-    # Configure root logger
-    logging.root.setLevel(logging.DEBUG)
-    logging.root.addHandler(file_handler)
-    logging.root.addHandler(console_handler)
-    
-    return logging.getLogger(__name__)
+    with _LOG_SETUP_LOCK:
+        detailed_formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+        )
+        simple_formatter = logging.Formatter("%(levelname)s - %(message)s")
+
+        logging.root.setLevel(logging.DEBUG)
+        if not any(getattr(handler, "_manga_console", False) for handler in logging.root.handlers):
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(log_level)
+            console_handler.setFormatter(simple_formatter)
+            console_handler._manga_console = True
+            logging.root.addHandler(console_handler)
+
+        if chapter_dir:
+            logger_name = "manga_factory.chapter." + hashlib.sha1(
+                str(chapter_dir).encode("utf-8")
+            ).hexdigest()[:12]
+        else:
+            logger_name = "manga_factory"
+        chapter_logger = logging.getLogger(logger_name)
+        chapter_logger.setLevel(logging.DEBUG)
+        chapter_logger.propagate = True
+
+        for handler in list(chapter_logger.handlers):
+            if getattr(handler, "_manga_chapter_file", False):
+                chapter_logger.removeHandler(handler)
+                handler.close()
+
+        if chapter_dir:
+            log_file = os.path.join(chapter_dir, 'manga_factory_enhanced.log')
+            file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(detailed_formatter)
+            file_handler._manga_chapter_file = True
+            chapter_logger.addHandler(file_handler)
+        return chapter_logger
 
 logger = setup_logging()
 
@@ -547,7 +573,18 @@ except ImportError:
 class EnhancedMangaFactory:
     """Enhanced Manga Factory with improved processing and error handling"""
     
-    def __init__(self, chapter_dir, config_file=None, mode='manga'):
+    def __init__(
+        self,
+        chapter_dir,
+        config_file=None,
+        mode='manga',
+        proxy_manager=None,
+        pipeline_manager=None,
+        browser_profile_name="default",
+        force_headful_browser=False,
+        browser_only=False,
+        enable_source_learning=True,
+    ):
         self.chapter_dir = Path(chapter_dir)
         self.chapter_dir.mkdir(parents=True, exist_ok=True)
         self.mode = mode
@@ -571,8 +608,8 @@ class EnhancedMangaFactory:
         # Initialize OCR readers
         self._setup_ocr()
         
-        # Initialize simple stitching
-        self.stitcher = SimpleStitching(str(self.chapter_dir))
+        # Deterministic full-strip, part, and individual-section stitching.
+        self.stitcher = AdvancedStitcher(str(self.chapter_dir), logger=self.logger)
         
         # ML panel detector removed (training not needed)
         self.ml_panel_detector = None
@@ -580,7 +617,10 @@ class EnhancedMangaFactory:
 
         # ── Smart Pipeline Intelligence managers ─────────────────────
         # SmartPipelineManager: learns best scraper + processing hints per domain
-        if SMART_PIPELINE_AVAILABLE:
+        self.enable_source_learning = bool(enable_source_learning)
+        if pipeline_manager is not None:
+            self.pipeline_mgr = pipeline_manager
+        elif self.enable_source_learning and SMART_PIPELINE_AVAILABLE:
             try:
                 self.pipeline_mgr = SmartPipelineManager(
                     data_dir=str(self.chapter_dir.parent))
@@ -592,7 +632,9 @@ class EnhancedMangaFactory:
             self.pipeline_mgr = None
 
         # MLProxyManager: UCB-based proxy scoring + rotation
-        if ML_PROXY_AVAILABLE:
+        if proxy_manager is not None:
+            self.proxy_mgr = proxy_manager
+        elif self.enable_source_learning and ML_PROXY_AVAILABLE:
             try:
                 self.proxy_mgr = MLProxyManager(
                     data_dir=str(self.chapter_dir.parent))
@@ -605,6 +647,11 @@ class EnhancedMangaFactory:
 
         # Store last chapter URL for cross-method ML reporting
         self._current_download_url = None
+        self.enable_human_behavior = True
+        self.enable_ad_blocker = True
+        self.browser_profile_name = browser_profile_name or "default"
+        self.force_headful_browser = bool(force_headful_browser)
+        self.browser_only = bool(browser_only)
 
         # Processing statistics
         self.stats = {
@@ -612,7 +659,10 @@ class EnhancedMangaFactory:
             'cleaned_images': 0,
             'extracted_panels': 0,
             'valid_panels': 0,
+            'video_scenes': 0,
             'ocr_processed': 0,
+            'dialogue_blocks': 0,
+            'character_profiles': 0,
             'errors': 0
         }
     
@@ -631,7 +681,9 @@ class EnhancedMangaFactory:
             'language': 'eng',
             'confidence_threshold': '60',
             'preprocessing': 'true',
-            'use_easyocr': 'true' if EASYOCR_AVAILABLE else 'false'
+            'use_easyocr': 'true' if EASYOCR_AVAILABLE else 'false',
+            'structured_dialogue': 'true',
+            'series_context': 'true'
         }
         config['PROCESSING'] = {
             'auto_format_detection': 'true',
@@ -816,6 +868,11 @@ class EnhancedMangaFactory:
             self._shared_playwright = None
             self._playwright_context_manager = None
 
+        for handler in list(self.logger.handlers):
+            if getattr(handler, "_manga_chapter_file", False):
+                self.logger.removeHandler(handler)
+                handler.close()
+
     def download_chapter(self, url, source_hint=None):
         """Enhanced chapter download with Unified Bypass Engine + legacy fallback.
         
@@ -838,6 +895,11 @@ class EnhancedMangaFactory:
                         proxy_manager=self.proxy_mgr,
                         pipeline_manager=self.pipeline_mgr,
                         headless=True,
+                        enable_ad_blocker=getattr(self, 'enable_ad_blocker', True),
+                        enable_human_behavior=getattr(self, 'enable_human_behavior', True),
+                        profile_name=getattr(self, 'browser_profile_name', 'default'),
+                        force_headful=getattr(self, 'force_headful_browser', False),
+                        browser_only=getattr(self, 'browser_only', False),
                     )
                     result = engine.download(url)
 
@@ -845,9 +907,14 @@ class EnhancedMangaFactory:
                         # Save the images to raw directory
                         image_urls = result['image_urls']
                         self.logger.info(f"✅ Unified engine found {len(image_urls)} images via '{result['method']}'")
-                        download_ok = self._download_images(image_urls, url)
-                        if download_ok:
+                        download_count = self._download_images(image_urls, url)
+                        if download_count == len(image_urls):
                             success = True
+                        else:
+                            self.logger.warning(
+                                f"Unified engine downloaded {download_count}/{len(image_urls)} valid images; "
+                                "continuing with fallbacks."
+                            )
                     else:
                         self.logger.warning(
                             f"⚠️ Unified engine exhausted all methods. "
@@ -940,6 +1007,8 @@ class EnhancedMangaFactory:
             return 'manhuaus'
         elif 'manhwaclan.com' in url_lower:
             return 'manhwaclan'
+        elif 'roliascan.com' in url_lower:
+            return 'roliascan'
         else:
             return 'generic'
     
@@ -1740,8 +1809,49 @@ class EnhancedMangaFactory:
 
         return success_count
 
+    @staticmethod
+    def _is_valid_raw_image_file(path):
+        """Return True only for a decodable, page-sized raster image."""
+        try:
+            with Image.open(path) as image:
+                image.verify()
+            with Image.open(path) as image:
+                return image.width >= 100 and image.height >= 100
+        except Exception:
+            return False
+
+    @staticmethod
+    def _validated_image_extension(payload, content_type=''):
+        """Validate response bytes and return a safe raster-file extension."""
+        from io import BytesIO
+
+        if len(payload) < 1024:
+            return None
+
+        normalized_type = (content_type or '').lower().split(';', 1)[0].strip()
+        if normalized_type in {'text/html', 'application/json', 'image/svg+xml'}:
+            return None
+
+        try:
+            with Image.open(BytesIO(payload)) as image:
+                image_format = (image.format or '').upper()
+                width, height = image.size
+                image.verify()
+        except Exception:
+            return None
+
+        if width < 100 or height < 100:
+            return None
+
+        return {
+            'JPEG': '.jpg',
+            'PNG': '.png',
+            'WEBP': '.webp',
+            'AVIF': '.avif',
+        }.get(image_format)
+
     def _download_images(self, image_urls, referer_url):
-        """Download images with proper headers and MLProxyManager UCB proxy rotation."""
+        """Download only real manga pages, using the ML-selected proxy each time."""
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
             'Referer': referer_url,
@@ -1753,30 +1863,49 @@ class EnhancedMangaFactory:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         def download_single(i, img_url):
-            # Resume logic: Check if any file with this index already exists
+            # Resume valid pages, but remove corrupted or non-image files left
+            # by an earlier failed run (for example an SVG saved as .jpg).
             existing = list(self.dirs['raw'].glob(f"{i+1:03d}.*"))
-            if existing:
-                if existing[0].stat().st_size > 1024:
-                    self.logger.debug(f"Skipping {existing[0].name} (already exists)")
+            for existing_file in existing:
+                if self._is_valid_raw_image_file(existing_file):
+                    self.logger.debug(f"Skipping {existing_file.name} (already valid)")
                     return True
+                self.logger.warning(f"Removing invalid existing download: {existing_file.name}")
+                try:
+                    existing_file.unlink()
+                except OSError as exc:
+                    self.logger.error(f"Could not remove invalid file {existing_file.name}: {exc}")
+                    return False
 
-            max_retries = 5
+            # Try two UCB-selected proxies first. If the public pool is stale,
+            # use one direct emergency retry so a readable chapter is never
+            # discarded solely because its proxy source is down.
+            max_retries = 3
             for attempt in range(max_retries):
-                # ── Proxy strategy: try DIRECT first, proxy only as fallback ──
-                # Free proxies are often slower/broken for CDN image downloads.
-                # First 2 attempts: direct. Attempts 3-5: try with proxy.
                 proxy_dict = None
                 _chosen_proxy = None
-                if attempt >= 2 and self.proxy_mgr:
+                direct_emergency_fallback = bool(
+                    self.proxy_mgr and attempt == max_retries - 1
+                )
+                if self.proxy_mgr and not direct_emergency_fallback:
                     try:
                         _chosen_proxy = self.proxy_mgr.get_best_proxy()
                         if _chosen_proxy:
                             proxy_dict = {
-                                'http':  f'http://{_chosen_proxy}',
-                                'https': f'http://{_chosen_proxy}',
+                                'http': _chosen_proxy,
+                                'https': _chosen_proxy,
                             }
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        self.logger.debug(f"ML proxy selection failed: {exc}")
+
+                if direct_emergency_fallback:
+                    self.logger.warning(
+                        f"All proxy attempts failed for image {i+1}; using one direct emergency fallback."
+                    )
+                elif self.proxy_mgr and not _chosen_proxy:
+                    self.logger.warning(
+                        f"No healthy proxy available for image {i+1}; using a direct fallback."
+                    )
 
                 try:
                     self.logger.debug(
@@ -1787,25 +1916,32 @@ class EnhancedMangaFactory:
 
                     response = requests.get(
                         img_url, headers=headers,
-                        proxies=proxy_dict, timeout=15
+                        proxies=proxy_dict, timeout=10
                     )
                     response.raise_for_status()
 
-                    # Validate image content
-                    if len(response.content) < 1000:
-                        self.logger.warning(f"Image too small: {len(response.content)} bytes")
+                    extension = self._validated_image_extension(
+                        response.content,
+                        response.headers.get('Content-Type', ''),
+                    )
+                    if not extension:
+                        content_type = response.headers.get('Content-Type', 'unknown')
+                        self.logger.warning(
+                            f"Rejected non-page response for image {i+1}: "
+                            f"{content_type}, {len(response.content)} bytes"
+                        )
                         if _chosen_proxy and self.proxy_mgr:
                             try:
                                 self.proxy_mgr.report_result(_chosen_proxy, success=False,
-                                                             latency=30.0)
+                                                             latency=response.elapsed.total_seconds())
                             except Exception:
                                 pass
                         if attempt < max_retries - 1:
-                            time.sleep(1)
+                            time.sleep(attempt + 1)
                             continue
+                        return False
 
-                    # Save image
-                    filename = self.dirs['raw'] / f"{i+1:03d}.jpg"
+                    filename = self.dirs['raw'] / f"{i+1:03d}{extension}"
                     with open(filename, 'wb') as f:
                         f.write(response.content)
 
@@ -3090,9 +3226,11 @@ class EnhancedMangaFactory:
                             f"[Generic L0] ✅ MLSiteLearner found {len(image_urls)} images"
                         )
                         count = self._download_images(image_urls, url)
-                        if count > 0:
+                        if count == len(image_urls):
                             return True
-                        self.logger.warning("[Generic L0] Images found but downloads failed — continuing")
+                        self.logger.warning(
+                            f"[Generic L0] Downloaded only {count}/{len(image_urls)} valid images — continuing"
+                        )
                     else:
                         self.logger.warning("[Generic L0] MLSiteLearner found no images — continuing")
             except Exception as _e:
@@ -3115,9 +3253,11 @@ class EnhancedMangaFactory:
             if image_urls:
                 self.logger.info(f"[Generic L1] ✅ Found {len(image_urls)} images via HTML scraper")
                 count = self._download_images(image_urls, url)
-                if count > 0:
+                if count == len(image_urls):
                     return True
-                self.logger.warning("[Generic L1] Images found but downloads failed — trying browser layers")
+                self.logger.warning(
+                    f"[Generic L1] Downloaded only {count}/{len(image_urls)} valid images — trying browser layers"
+                )
             else:
                 self.logger.warning("[Generic L1] No images found with HTML scraper")
         except Exception as e:
@@ -3202,7 +3342,7 @@ class EnhancedMangaFactory:
                 if image_urls:
                     self.logger.info(f"[Generic L2] ✅ Found {len(image_urls)} images via Playwright")
                     count = self._download_images(image_urls, page_url)
-                    if count > 0:
+                    if count == len(image_urls):
                         return True
                 else:
                     self.logger.warning("[Generic L2] No images found with Playwright")
@@ -3270,7 +3410,7 @@ class EnhancedMangaFactory:
             if image_urls:
                 self.logger.info(f"[Generic L3] ✅ Found {len(image_urls)} images via UC")
                 count = self._download_images(image_urls, current_url)
-                if count > 0:
+                if count == len(image_urls):
                     return True
             else:
                 self.logger.warning("[Generic L3] No images found with UC")
@@ -3497,7 +3637,7 @@ class EnhancedMangaFactory:
 
             # Use our advanced stitching module
             result = self.stitcher.process_stitching(
-                force_format=self.mode,
+                force_format=force_format,
                 chunk_by_panels=chunk_by_panels,
                 min_panels_per_chunk=min_p,
                 max_panels_per_chunk=max_p,
@@ -3505,22 +3645,10 @@ class EnhancedMangaFactory:
             )
             
             if result['success']:
+                self.stats['video_scenes'] = int(result.get('video_scene_count', 0))
                 self.logger.info(f"Stitching successful - Format: {result['format_detected']}")
                 self.logger.info(f"Output files: {len(result['output_files'])}")
                 
-                # If panels were extracted from stitching, we might want to move them to the main panels directory
-                # so the rest of the pipeline (OCR, etc.) picks them up.
-                if extract_single_panels:
-                    stitched_panels_dir = self.dirs['stitched'] / 'panels'
-                    if stitched_panels_dir.exists():
-                        # Copy to main panels dir
-                        count = 0
-                        for p_file in stitched_panels_dir.glob('*.png'):
-                            shutil.copy2(p_file, self.dirs['panels'] / p_file.name)
-                            count += 1
-                        self.logger.info(f"Imported {count} stitched panels to {self.dirs['panels']}")
-                        self.stats['extracted_panels'] += count
-
                 return result
             else:
                 self.logger.warning("Stitching failed, will use individual image processing")
@@ -3538,22 +3666,71 @@ class EnhancedMangaFactory:
         self.logger.info("Starting enhanced panel extraction")
         
         try:
+            for existing in self.dirs['panels'].glob('*.png'):
+                existing.unlink()
+
+            # The complete strip is the source of truth. Prefer quality-framed
+            # video scenes; retain the archival panel cutter as a fallback.
+            complete_strip = self.dirs['stitched'] / 'complete_manga_strip.png'
+            video_scene_dir = self.dirs['stitched'] / 'video_scenes'
+            video_scene_files = sorted(
+                video_scene_dir.glob('scene_*.png'),
+                key=lambda path: self._natural_sort_key(path.name),
+            )
+            if not video_scene_files and complete_strip.exists():
+                video_result = self.stitcher.extract_video_scenes_from_complete_strip()
+                if video_result.get('success'):
+                    video_scene_files = [Path(path) for path in video_result['scene_files']]
+                    self.stats['video_scenes'] = len(video_scene_files)
+            if video_scene_files:
+                self.logger.info(
+                    f"Using {len(video_scene_files)} standard-shape video scenes as canonical panels"
+                )
+                return self._import_full_strip_panel_cuts(
+                    video_scene_files,
+                    skip_validation=skip_validation,
+                )
+
+            stitched_panel_dir = self.dirs['stitched'] / 'panels'
+            stitched_panel_files = sorted(
+                stitched_panel_dir.glob('panel_*.png'),
+                key=lambda path: self._natural_sort_key(path.name),
+            )
+            if not stitched_panel_files and complete_strip.exists():
+                cut_result = self.stitcher.extract_panels_from_complete_strip()
+                if cut_result.get('success'):
+                    stitched_panel_files = [Path(path) for path in cut_result['panel_files']]
+            if stitched_panel_files:
+                return self._import_full_strip_panel_cuts(
+                    stitched_panel_files,
+                    skip_validation=skip_validation,
+                )
+
             # Always try stitching first for better panel combination
-            stitched_files = list(self.dirs['stitched'].glob('*.png'))
+            stitched_parts_dir = self.dirs['stitched'] / 'parts'
+            stitched_files = list(stitched_parts_dir.glob('stitched_part_*.png'))
+            if not stitched_files:
+                complete_strip = self.dirs['stitched'] / 'complete_manga_strip.png'
+                stitched_files = [complete_strip] if complete_strip.exists() else []
             if not stitched_files:
                 self.logger.info("Creating stitched images for better panel extraction...")
                 stitch_result = self.process_stitching_enhanced()
                 if stitch_result.get('success'):
-                    stitched_files = list(self.dirs['stitched'].glob('*.png'))
+                    stitched_files = list(stitched_parts_dir.glob('stitched_part_*.png'))
+                    if not stitched_files:
+                        complete_strip = self.dirs['stitched'] / 'complete_manga_strip.png'
+                        stitched_files = [complete_strip] if complete_strip.exists() else []
                     self.logger.info("Stitching successful - will extract from combined images")
                 else:
                     self.logger.warning("Stitching failed - extracting from individual images")
             
             # Use stitched if available, otherwise clean images
             if stitched_files:
-                source_dir = self.dirs['stitched']
+                source_dir = stitched_parts_dir if stitched_parts_dir.exists() else self.dirs['stitched']
                 source_files = stitched_files
-                self.logger.info(f"Extracting from {len(source_files)} stitched images (combined panels)")
+                self.logger.info(
+                    f"Extracting from {len(source_files)} non-overlapping stitched part(s)"
+                )
             else:
                 source_dir = self.dirs['clean']
                 source_files = []
@@ -3670,6 +3847,60 @@ class EnhancedMangaFactory:
             self.logger.error(f"Panel extraction failed: {e}")
             self.stats['errors'] += 1
             return []
+
+    def _import_full_strip_panel_cuts(self, panel_files, skip_validation=False):
+        """Import canonical cuts created from complete_manga_strip.png."""
+        imported = []
+        panel_meta = {}
+        manifest_ranges = []
+        manifest_path = self.dirs['stitched'] / 'stitch_manifest.json'
+        if manifest_path.exists():
+            try:
+                range_key = (
+                    'video_scene_ranges'
+                    if panel_files and Path(panel_files[0]).parent.name == 'video_scenes'
+                    else 'panel_ranges'
+                )
+                manifest_ranges = json.loads(
+                    manifest_path.read_text(encoding='utf-8')
+                ).get(range_key, [])
+            except Exception:
+                manifest_ranges = []
+
+        for index, source_path in enumerate(panel_files, start=1):
+            image = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
+            if image is None:
+                self.logger.warning(f"Skipping unreadable full-strip cut: {source_path}")
+                continue
+            filename = f"panel_{index:04d}.png"
+            destination = self.dirs['panels'] / filename
+            if not cv2.imwrite(str(destination), image, [cv2.IMWRITE_PNG_COMPRESSION, 4]):
+                self.logger.warning(f"Could not save panel cut: {destination}")
+                continue
+            imported.append(filename)
+            y_range = manifest_ranges[index - 1] if index <= len(manifest_ranges) else None
+            panel_meta[Path(filename).stem] = {
+                'source': str(self.dirs['stitched'] / 'complete_manga_strip.png'),
+                'strip_y_range': y_range,
+                'width': int(image.shape[1]),
+                'height': int(image.shape[0]),
+            }
+
+        self.logger.info(
+            f"Imported {len(imported)} canonical panel cuts from the complete stitched strip"
+        )
+        self.stats['extracted_panels'] = len(imported)
+        meta_path = self.dirs['script'] / 'chapter_meta.json'
+        meta_path.write_text(json.dumps(panel_meta, indent=2), encoding='utf-8')
+
+        if not skip_validation:
+            self.validate_panels_enhanced()
+        final_panels = sorted(
+            self.dirs['panels'].glob('panel_*.png'),
+            key=lambda path: self._natural_sort_key(path.name),
+        )
+        self.stats['extracted_panels'] = len(final_panels)
+        return [path.name for path in final_panels]
     
     
     def _extract_panels_from_image(self, img_path, img_idx):
@@ -4606,143 +4837,126 @@ class EnhancedMangaFactory:
         self.logger.info(f"Final panels built at {final_dir}: {copied} single panels + {subs} sub-scenes")
     
     def validate_panels_enhanced(self):
-        """Enhanced panel validation with comprehensive filtering"""
+        """Filter, archive, and deterministically renumber canonical panel cuts."""
         self.logger.info("Starting enhanced panel validation")
-        
+
         try:
-            # Get all panels
-            panel_files = list(self.dirs['panels'].glob('*.png'))
+            panel_files = sorted(
+                self.dirs['panels'].glob('panel_*.png'),
+                key=lambda path: self._natural_sort_key(path.name),
+            )
             if not panel_files:
                 self.logger.warning("No panels found for validation")
                 return 0
-            
-            panel_files.sort(key=lambda x: self._natural_sort_key(x.name))
             self.logger.info(f"Validating {len(panel_files)} panels")
-            
-            # Validation statistics - focus on quality, not filtering
+
             stats = {
                 'total': len(panel_files),
                 'valid': 0,
                 'duplicates': 0,
                 'blank': 0,
                 'too_small': 0,
-                'smart_numbered': 0
+                'extreme_shape': 0,
+                'unreadable': 0,
             }
-            
-            # Track hashes for duplicate detection
-            panel_hashes = {}
-            valid_panels = []
-            cut_candidates = []
-            
-            for panel_index, panel_path in enumerate(panel_files):
-                try:
-                    # Load panel
-                    img = cv2.imread(str(panel_path))
-                    if img is None:
-                        continue
-                    
-                    height, width = img.shape[:2]
-                    
-                    # Size validation - Stricter threshold to avoid "junk" cuts
-                    # Increased from 40 to 75 to ensure only significant content is kept
-                    if height < 75 or width < 75:
-                        stats['too_small'] += 1
-                        continue
-                    
-                    # Aspect ratio check (avoid extremely thin slices)
-                    ratio = width / height if height > 0 else 0
-                    if ratio > 10 or ratio < 0.1:
-                        stats['too_small'] += 1  # Count as size/form rejects
-                        continue
-                    
-                    # Blank panel detection
-                    if self._is_blank_panel_enhanced(img):
-                        stats['blank'] += 1
-                        continue
-                    
-                    # Keep all panels - no aggressive filtering
-                    # Focus on quality and smart numbering instead
-                    
-                    # Cut panel detection
-                    is_cut = self._is_cut_panel_enhanced(img)
-                    if is_cut:
-                        stats['cut_detected'] += 1
-                        cut_candidates.append(panel_path)
-                        # Respect config: drop obvious cuts from valid set if disabled
-                        if not self.config.getboolean('PROCESSING', 'keep_cut_fragments', fallback=False):
-                            stats['cut_removed'] = stats.get('cut_removed', 0) + 1
-                            continue
-                    
-                    # Duplicate detection
-                    panel_hash = self._calculate_panel_hash_enhanced(img)
-                    
-                    # Check similarity with existing panels
-                    is_duplicate = False
-                    threshold = float(self.config.get('PROCESSING', 'duplicate_threshold'))
-                    
-                    for existing_hash, existing_path in panel_hashes.items():
-                        similarity = self._calculate_hash_similarity_enhanced(panel_hash, existing_hash)
-                        if similarity > threshold:
-                            stats['duplicates'] += 1
-                            is_duplicate = True
-                            self.logger.debug(f"Duplicate panel: {panel_path.name} (similar to {existing_path})")
-                            break
-                    
-                    if not is_duplicate:
-                        panel_hashes[panel_hash] = panel_path.name
-                        valid_panels.append(panel_path)
-                        stats['valid'] += 1
-                        if is_cut:
-                            stats['cut_kept'] += 1
-                
-                except Exception as e:
-                    self.logger.error(f"Error validating panel {panel_path}: {e}")
-            
-            # Copy valid panels with smart numbering
-            self._copy_valid_panels_with_smart_numbering(valid_panels)
-            
-            # Optionally stitch cut fragments into composites
+
+            review_dir = self.dirs['filtered'] / 'panel_validation'
+            accepted_dir = self.dirs['panels'] / '.accepted'
+            for directory in (review_dir, accepted_dir):
+                if directory.exists():
+                    shutil.rmtree(directory)
+                directory.mkdir(parents=True, exist_ok=True)
+
             try:
-                if self.config.getboolean('PROCESSING', 'stitch_cut_panels', fallback=True) and len(cut_candidates) >= 2:
-                    stitched_count = self._stitch_cut_fragments(cut_candidates)
-                    stats['cut_stitched'] = stitched_count
-            except Exception as e:
-                self.logger.warning(f"Cut-fragment stitching skipped due to error: {e}")
-            
-            # Log results
-            self._log_validation_results(stats)
-            
+                duplicate_threshold = float(
+                    self.config.get('PROCESSING', 'duplicate_threshold', fallback='0.95')
+                )
+            except Exception:
+                duplicate_threshold = 0.95
+            accepted_hashes = []
+            rejected = []
+
+            for panel_path in panel_files:
+                image = cv2.imread(str(panel_path), cv2.IMREAD_COLOR)
+                reason = None
+                if image is None:
+                    reason = 'unreadable'
+                else:
+                    height, width = image.shape[:2]
+                    if height < 140 or width < 200:
+                        reason = 'too_small'
+                    elif width / max(1, height) > 8.0 or height / max(1, width) > 12.0:
+                        reason = 'extreme_shape'
+                    elif self._is_blank_panel_enhanced(image):
+                        reason = 'blank'
+                    else:
+                        panel_hash = self._calculate_panel_hash_enhanced(image)
+                        if any(
+                            self._calculate_hash_similarity_enhanced(panel_hash, known_hash)
+                            >= duplicate_threshold
+                            for known_hash in accepted_hashes
+                        ):
+                            reason = 'duplicates'
+                        else:
+                            accepted_hashes.append(panel_hash)
+
+                if reason:
+                    stats[reason] += 1
+                    reason_dir = review_dir / reason
+                    reason_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(panel_path, reason_dir / panel_path.name)
+                    rejected.append({'file': panel_path.name, 'reason': reason})
+                    continue
+
+                output_path = accepted_dir / f"panel_{stats['valid'] + 1:04d}.png"
+                shutil.copy2(panel_path, output_path)
+                stats['valid'] += 1
+
+            for panel_path in panel_files:
+                panel_path.unlink()
+            for accepted_path in sorted(
+                accepted_dir.glob('panel_*.png'),
+                key=lambda path: self._natural_sort_key(path.name),
+            ):
+                accepted_path.replace(self.dirs['panels'] / accepted_path.name)
+            accepted_dir.rmdir()
+
+            report = {
+                'source': str(self.dirs['stitched'] / 'complete_manga_strip.png'),
+                'stats': stats,
+                'rejected': rejected,
+                'review_directory': str(review_dir),
+            }
+            report_path = self.dirs['script'] / 'panel_validation.json'
+            report_path.write_text(json.dumps(report, indent=2), encoding='utf-8')
+            self.logger.info(
+                "Panel validation kept %d/%d cuts; rejected files are reviewable in %s",
+                stats['valid'],
+                stats['total'],
+                review_dir,
+            )
             self.stats['valid_panels'] = stats['valid']
             return stats['valid']
-            
-        except Exception as e:
-            self.logger.error(f"Panel validation failed: {e}")
+
+        except Exception as exc:
+            self.logger.error(f"Panel validation failed: {exc}")
             self.stats['errors'] += 1
             return 0
     
     def _is_blank_panel_enhanced(self, img):
-        """Enhanced blank panel detection"""
+        """Detect empty gutters while retaining sparse dialogue and sound effects."""
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Multiple criteria for blank detection
-        total_pixels = gray.shape[0] * gray.shape[1]
-        
-        # 1. White pixel percentage
-        white_pixels = np.sum(gray > 240)
-        white_ratio = white_pixels / total_pixels
-        if white_ratio > 0.95:
+        edges = cv2.Canny(gray, 50, 150)
+        edge_ratio = float(np.mean(edges > 0))
+        white_ratio = float(np.mean(gray > 242))
+        dark_ratio = float(np.mean(gray < 232))
+        contrast = float(gray.std())
+        if white_ratio > 0.975 and edge_ratio < 0.004:
             return True
-        
-        # 2. Low variance (uniform color)
-        if np.var(gray) < 100:
+        if contrast < 12.0 and edge_ratio < 0.003:
             return True
-        
-        # 3. Histogram analysis
-        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
-        max_bin_ratio = np.max(hist) / total_pixels
-        if max_bin_ratio > 0.9:
+        if dark_ratio < 0.012 and edge_ratio < 0.0025:
             return True
-        
         return False
     
     def _is_unwanted_panel(self, img, panel_index, total_panels):
@@ -5168,6 +5382,26 @@ class EnhancedMangaFactory:
             except Exception as _e:
                 self.logger.debug(f"SmartPipelineManager OCR hint failed: {_e}")
 
+        # The structured pass owns dialogue boxes, scene metadata, speaker
+        # assignment, and per-series character memory. Keep the older OCR
+        # engines below as a graceful fallback for unusual installations.
+        if DIALOGUE_EXTRACTOR_AVAILABLE and self.config.getboolean(
+            'OCR', 'structured_dialogue', fallback=True
+        ):
+            try:
+                result = self.process_dialogue_context_enhanced(
+                    ocr_lang=ocr_lang,
+                    confidence_threshold=max(30, int(confidence_threshold) - 20),
+                    reprocess=True,
+                )
+                text_files = [Path(path) for path in result.get('text_files', [])]
+                if text_files:
+                    self.logger.info("Structured dialogue OCR completed successfully")
+                    return sorted(text_files, key=lambda path: self._natural_sort_key(path.name))
+                self.logger.warning("Structured dialogue OCR found no text; using legacy OCR")
+            except Exception as exc:
+                self.logger.warning(f"Structured dialogue OCR failed: {exc}; using legacy OCR")
+
         # Try to use the new EnhancedOCRProcessor if available
         if ENHANCED_OCR_AVAILABLE:
             try:
@@ -5213,6 +5447,50 @@ class EnhancedMangaFactory:
         else:
             self.logger.info("Enhanced OCR not available, using original implementation")
             return self._process_ocr_original(ocr_lang, confidence_threshold)
+
+    def process_dialogue_context_enhanced(
+        self,
+        ocr_lang='eng',
+        confidence_threshold=40,
+        reprocess=False,
+    ):
+        """Build dialogue, scene, speaker, and persistent series context data."""
+        if not DIALOGUE_EXTRACTOR_AVAILABLE:
+            raise RuntimeError("Structured dialogue extractor is not available")
+
+        chapter_json = self.dirs['script'] / 'chapter_dialogue.json'
+        if chapter_json.exists() and not reprocess:
+            try:
+                payload = json.loads(chapter_json.read_text(encoding='utf-8'))
+                transcript_files = sorted(
+                    self.dirs['transcripts'].glob('*.txt'),
+                    key=lambda path: self._natural_sort_key(path.name),
+                )
+                return {
+                    'success': True,
+                    'text_files': transcript_files,
+                    'dialogue_json': chapter_json,
+                    'characters_json': self.dirs['script'] / 'characters.json',
+                    'series_context': Path(payload.get('series_context_path', '')),
+                    'stats': payload.get('stats', {}),
+                    'cached': True,
+                }
+            except Exception as exc:
+                self.logger.warning(f"Existing dialogue context is unreadable: {exc}; rebuilding")
+
+        extractor = DialogueExtractor(
+            self.chapter_dir,
+            logger=self.logger,
+            ocr_lang=ocr_lang,
+            confidence_threshold=confidence_threshold,
+            use_easyocr=bool(self.easyocr_reader),
+        )
+        result = extractor.process_chapter()
+        stats = result.get('stats', {})
+        self.stats['ocr_processed'] = int(stats.get('text_panels', 0))
+        self.stats['dialogue_blocks'] = int(stats.get('text_blocks', 0))
+        self.stats['character_profiles'] = int(stats.get('character_profiles', 0))
+        return result
     
     def _process_ocr_original(self, ocr_lang='eng', confidence_threshold=60):
         """Original OCR processing method with PARALLEL execution"""
@@ -5450,6 +5728,15 @@ class EnhancedMangaFactory:
         try:
             # Ensure script directory exists
             self.dirs['script'].mkdir(parents=True, exist_ok=True)
+
+            dialogue_path = self.dirs['script'] / 'chapter_dialogue.json'
+            if dialogue_path.exists():
+                try:
+                    return self._generate_structured_script(dialogue_path, add_emotions)
+                except Exception as exc:
+                    self.logger.warning(
+                        f"Structured script generation failed: {exc}; using transcript fallback"
+                    )
             
             # Get text files
             text_files = list(self.dirs['transcripts'].glob('*.txt'))
@@ -5594,6 +5881,90 @@ class EnhancedMangaFactory:
                 return script_path
             except:
                 return None
+
+    def _generate_structured_script(self, dialogue_path, add_emotions=False):
+        """Render chapter dialogue JSON into readable and machine-friendly scripts."""
+        payload = json.loads(Path(dialogue_path).read_text(encoding='utf-8'))
+        panels = payload.get('panels', [])
+        if not isinstance(panels, list) or not panels:
+            raise ValueError("chapter_dialogue.json contains no panels")
+
+        script_lines = []
+        clean_lines = []
+        spoken_lines = []
+        panels_with_text = 0
+        dialogue_count = 0
+        total_characters = 0
+
+        for panel in panels:
+            panel_name = str(panel.get('panel', 'unknown'))
+            scene = panel.get('scene', {}) if isinstance(panel.get('scene'), dict) else {}
+            scene_label = str(scene.get('label', 'mixed_scene'))
+            dark_suffix = " | dark" if scene.get('is_dark') else ""
+            script_lines.append(f"[Panel {panel_name} | {scene_label}{dark_suffix}]")
+
+            text_boxes = panel.get('text_boxes', [])
+            if not isinstance(text_boxes, list) or not text_boxes:
+                script_lines.append("[Silent panel]")
+                script_lines.append("")
+                continue
+
+            panels_with_text += 1
+            for block in text_boxes:
+                text = str(block.get('text', '')).strip()
+                if not text:
+                    continue
+                block_type = str(block.get('type', 'dialogue'))
+                speaker = str(block.get('speaker') or 'Unknown')
+                if block_type == 'sfx':
+                    rendered = f"[SFX] {text}"
+                elif block_type == 'narration':
+                    rendered = f"Narrator: {text}"
+                else:
+                    if add_emotions:
+                        text = self._add_emotion_tags(text)
+                    rendered = f"{speaker}: {text}"
+                    dialogue_count += 1
+                    spoken_lines.append(rendered)
+                script_lines.append(rendered)
+                clean_lines.append(rendered)
+                total_characters += len(text)
+            script_lines.append("")
+
+        stats = payload.get('stats', {}) if isinstance(payload.get('stats'), dict) else {}
+        header = [
+            "# Script Statistics",
+            f"# Series: {payload.get('series', self.chapter_dir.parent.name)}",
+            f"# Chapter: {payload.get('chapter', self.chapter_dir.name)}",
+            f"# Panels: {len(panels)} ({panels_with_text} with text)",
+            f"# Dialogue lines: {dialogue_count}",
+            f"# Character profiles: {stats.get('character_profiles', 0)}",
+            f"# Dark panels: {stats.get('dark_panels', 0)}",
+            f"# Total text characters: {total_characters}",
+            f"# Emotion tags: {'Enabled' if add_emotions else 'Disabled'}",
+            f"# Generated at: {self._get_timestamp()}",
+            "",
+            "# " + "=" * 50,
+            "# CHAPTER SCRIPT",
+            "# " + "=" * 50,
+            "",
+        ]
+
+        script_path = self.dirs['script'] / 'chapter.txt'
+        script_path.write_text("\n".join(header + script_lines).rstrip() + "\n", encoding='utf-8')
+
+        clean_path = self.dirs['script'] / 'clean_chapter.txt'
+        clean_path.write_text("\n".join(clean_lines).rstrip() + "\n", encoding='utf-8')
+
+        spoken_path = self.dirs['script'] / 'spoken_dialogue.txt'
+        spoken_path.write_text("\n".join(spoken_lines).rstrip() + "\n", encoding='utf-8')
+
+        self.logger.info(
+            f"Structured script generated: {len(panels)} panels, "
+            f"{dialogue_count} dialogue lines, {total_characters} characters"
+        )
+        self.logger.info(f"Script saved to: {script_path}")
+        return script_path
     
     def _get_timestamp(self):
         """Get current timestamp for script metadata"""
@@ -5770,8 +6141,16 @@ def main():
     """Main function for command line usage"""
     parser = argparse.ArgumentParser(description='Enhanced Manga Factory')
     
-    parser.add_argument('--url', help='Manga/webtoon URL to download')
-    parser.add_argument('--webtoon-url', help='Webtoon URL (alias for --url)')
+    parser.add_argument(
+        '--url',
+        action='append',
+        help='Manga/webtoon URL to download; repeat for parallel chapter jobs',
+    )
+    parser.add_argument(
+        '--webtoon-url',
+        action='append',
+        help='Webtoon URL (alias for --url); repeat for parallel chapter jobs',
+    )
     parser.add_argument('--chapter-dir', required=True, help='Chapter directory path')
     parser.add_argument('--mode', default='manga', choices=['manga', 'webtoon'],
                         help='Download mode: manga (page-by-page) or webtoon (long strip)')
@@ -5807,6 +6186,13 @@ def main():
     # Concurrency
     parser.add_argument('--concurrent', type=int, default=3,
                         help='Max concurrent chapters to process (default: 3)')
+
+    args = parser.parse_args()
+    urls = [
+        url.strip()
+        for url in [*(args.url or []), *(args.webtoon_url or [])]
+        if url and url.strip()
+    ]
     
     if not urls:
         print("❌ Please provide at least one URL using --url")
@@ -5906,78 +6292,27 @@ def main():
                 if not text_files:
                     logger.warning("No text extracted from panels")
             
-            # Character Learning Phase
-            if args.learn_characters and LEARNER_AVAILABLE:
-                logger.info("=== CHARACTER LEARNING PHASE ===")
+            # Character and scene controls both use the structured chapter model.
+            # OCR usually built it already, so these switches reuse the cached
+            # result instead of running a second, conflicting analysis system.
+            if args.learn_characters or args.analyze_scenes:
+                logger.info("=== CHARACTER CONTEXT + SCENE MAP PHASE ===")
                 try:
-                    learner = CharacterLearner(output_dir=factory.chapter_dir, manga_name=getattr(factory, 'series_name', factory.chapter_dir.parent.name) or "unknown")
-                    # We need access to valid panels. 
-                    # Assuming factory.dirs['panels'] contains the valid ones.
-                    valid_panels = list(factory.dirs['panels'].glob('*.png'))
-                    total_faces = 0
-                    
-                    from concurrent.futures import ThreadPoolExecutor
-                    import os
-                    
-                    def _learn_fn(p):
-                        try:
-                            return learner.learn_from_panel(p, p.stem)
-                        except Exception as e:
-                            logger.debug(f"Error learning from panel {p.name}: {e}")
-                            return 0
-                            
-                    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 4)) as executor:
-                        face_counts = list(executor.map(_learn_fn, valid_panels))
-                        total_faces = sum(face_counts)
-                        
-                    logger.info(f"Learned {total_faces} faces from {len(valid_panels)} panels")
-                    
-                    # Run Clustering
-                    learner.cluster_characters()
-                    
-                except Exception as e:
-                    logger.error(f"Character learning failed: {e}")
-            elif args.learn_characters:
-                logger.warning("Character learning module not available (cv2 missing?)")
-
-            # Scene Analysis Phase (append to metadata)
-            if args.analyze_scenes and LEARNER_AVAILABLE:
-                logger.info("=== SCENE ANALYSIS PHASE ===")
-                try:
-                    scene_meta = {}
-                    valid_panels = list(factory.dirs['panels'].glob('*.png'))
-                    valid_panels.sort(key=lambda x: factory._natural_sort_key(x.name))
-                    
-                    logger.info(f"Analyzing scenes for {len(valid_panels)} panels...")
-                    
-                    from concurrent.futures import ThreadPoolExecutor, as_completed
-                    import os
-                    
-                    def _analyze_fn(p):
-                        try:
-                            tags = SceneAnalyzer.analyze(p)
-                            return p.name, tags
-                        except Exception as e:
-                            logger.debug(f"Error analyzing scene {p.name}: {e}")
-                            return p.name, None
-                            
-                    with ThreadPoolExecutor(max_workers=min(10, os.cpu_count() or 4)) as executor:
-                        futures = {executor.submit(_analyze_fn, p): p for p in valid_panels}
-                        for future in as_completed(futures):
-                            name, tags = future.result()
-                            if tags:
-                                scene_meta[name] = tags
-                            
-                    # Save scene metadata
-                    factory.dirs['script'].mkdir(parents=True, exist_ok=True)
-                    scene_json_path = factory.dirs['script'] / 'scene_analysis.json'
-                    with open(scene_json_path, 'w', encoding='utf-8') as f:
-                        json.dump(scene_meta, f, indent=2)
-                        
-                    logger.info(f"Scene analysis completed. Metadata saved to {scene_json_path.name}")
-                    
-                except Exception as e:
-                    logger.error(f"Scene analysis failed: {e}") 
+                    context_result = factory.process_dialogue_context_enhanced(
+                        ocr_lang=args.ocr_lang,
+                        confidence_threshold=max(30, int(args.ocr_confidence) - 20),
+                        reprocess=False,
+                    )
+                    context_stats = context_result.get('stats', {})
+                    logger.info(
+                        "Context ready: "
+                        f"{context_stats.get('character_profiles', 0)} character profiles, "
+                        f"{context_stats.get('text_blocks', 0)} text blocks, "
+                        f"{context_stats.get('dark_panels', 0)} dark panels"
+                    )
+                    logger.info(f"Series memory: {context_result.get('series_context')}")
+                except Exception as exc:
+                    logger.error(f"Character context and scene mapping failed: {exc}")
             
             # Script generation
             logger.info("=== SCRIPT GENERATION PHASE ===")

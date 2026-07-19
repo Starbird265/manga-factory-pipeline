@@ -1,0 +1,973 @@
+{
+  "ok": true,
+  "frames_root": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames",
+  "states": [
+    "idle",
+    "running-right",
+    "running-left",
+    "waving",
+    "jumping",
+    "failed",
+    "waiting",
+    "running",
+    "review"
+  ],
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "idle",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/idle/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22276,
+          "bbox": [
+            9,
+            5,
+            183,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 155
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/idle/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22606,
+          "bbox": [
+            8,
+            5,
+            183,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 225
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/idle/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22516,
+          "bbox": [
+            8,
+            5,
+            183,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 203
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/idle/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22384,
+          "bbox": [
+            9,
+            5,
+            183,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 166
+        },
+        {
+          "index": 4,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/idle/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22543,
+          "bbox": [
+            9,
+            5,
+            182,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 134
+        },
+        {
+          "index": 5,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/idle/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22450,
+          "bbox": [
+            9,
+            5,
+            183,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 201
+        }
+      ]
+    },
+    {
+      "state": "running-right",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-right/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21521,
+          "bbox": [
+            8,
+            5,
+            183,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 222
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-right/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19887,
+          "bbox": [
+            14,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 171
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-right/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20950,
+          "bbox": [
+            18,
+            5,
+            174,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 303
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-right/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20578,
+          "bbox": [
+            15,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 269
+        },
+        {
+          "index": 4,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-right/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20467,
+          "bbox": [
+            22,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 255
+        },
+        {
+          "index": 5,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-right/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19483,
+          "bbox": [
+            13,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 242
+        },
+        {
+          "index": 6,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-right/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20608,
+          "bbox": [
+            13,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 261
+        },
+        {
+          "index": 7,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-right/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21219,
+          "bbox": [
+            14,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 260
+        }
+      ]
+    },
+    {
+      "state": "running-left",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-left/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20769,
+          "bbox": [
+            15,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 197
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-left/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19209,
+          "bbox": [
+            22,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 151
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-left/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21225,
+          "bbox": [
+            19,
+            5,
+            173,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 321
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-left/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20856,
+          "bbox": [
+            12,
+            5,
+            180,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 262
+        },
+        {
+          "index": 4,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-left/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16756,
+          "bbox": [
+            5,
+            17,
+            187,
+            190
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 258
+        },
+        {
+          "index": 5,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-left/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19934,
+          "bbox": [
+            6,
+            5,
+            186,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 279
+        },
+        {
+          "index": 6,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-left/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20515,
+          "bbox": [
+            15,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 273
+        },
+        {
+          "index": 7,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running-left/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20626,
+          "bbox": [
+            21,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 204
+        }
+      ]
+    },
+    {
+      "state": "waving",
+      "expected_frames": 4,
+      "actual_frames": 4,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waving/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20956,
+          "bbox": [
+            20,
+            5,
+            172,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 89
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waving/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21623,
+          "bbox": [
+            12,
+            5,
+            180,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 103
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waving/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21032,
+          "bbox": [
+            5,
+            7,
+            187,
+            201
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 91
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waving/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20972,
+          "bbox": [
+            19,
+            5,
+            172,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 72
+        }
+      ]
+    },
+    {
+      "state": "jumping",
+      "expected_frames": 5,
+      "actual_frames": 5,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/jumping/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22155,
+          "bbox": [
+            5,
+            20,
+            187,
+            188
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 138
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/jumping/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24080,
+          "bbox": [
+            7,
+            5,
+            185,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 182
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/jumping/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23888,
+          "bbox": [
+            7,
+            5,
+            184,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 212
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/jumping/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22419,
+          "bbox": [
+            9,
+            5,
+            182,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 160
+        },
+        {
+          "index": 4,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/jumping/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22593,
+          "bbox": [
+            5,
+            18,
+            187,
+            190
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 227
+        }
+      ]
+    },
+    {
+      "state": "failed",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/failed/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 26019,
+          "bbox": [
+            10,
+            5,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 315
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/failed/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 26492,
+          "bbox": [
+            9,
+            5,
+            182,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 265
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/failed/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25114,
+          "bbox": [
+            13,
+            5,
+            179,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 218
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/failed/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24921,
+          "bbox": [
+            14,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 229
+        },
+        {
+          "index": 4,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/failed/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22866,
+          "bbox": [
+            5,
+            21,
+            187,
+            187
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 287
+        },
+        {
+          "index": 5,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/failed/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23333,
+          "bbox": [
+            18,
+            5,
+            173,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 297
+        },
+        {
+          "index": 6,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/failed/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22850,
+          "bbox": [
+            22,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 245
+        },
+        {
+          "index": 7,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/failed/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24623,
+          "bbox": [
+            15,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 288
+        }
+      ]
+    },
+    {
+      "state": "waiting",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waiting/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20005,
+          "bbox": [
+            26,
+            5,
+            166,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 124
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waiting/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20354,
+          "bbox": [
+            22,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 195
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waiting/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19883,
+          "bbox": [
+            26,
+            5,
+            165,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 123
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waiting/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20305,
+          "bbox": [
+            25,
+            5,
+            166,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 140
+        },
+        {
+          "index": 4,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waiting/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20663,
+          "bbox": [
+            21,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 148
+        },
+        {
+          "index": 5,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/waiting/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20069,
+          "bbox": [
+            26,
+            5,
+            166,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 122
+        }
+      ]
+    },
+    {
+      "state": "running",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23144,
+          "bbox": [
+            12,
+            5,
+            179,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 182
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22308,
+          "bbox": [
+            14,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 144
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21574,
+          "bbox": [
+            22,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 167
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21564,
+          "bbox": [
+            14,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 147
+        },
+        {
+          "index": 4,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23905,
+          "bbox": [
+            8,
+            5,
+            184,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 201
+        },
+        {
+          "index": 5,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/running/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21984,
+          "bbox": [
+            20,
+            5,
+            172,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 142
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/review/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22446,
+          "bbox": [
+            8,
+            5,
+            184,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 182
+        },
+        {
+          "index": 1,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/review/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21611,
+          "bbox": [
+            16,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 169
+        },
+        {
+          "index": 2,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/review/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20554,
+          "bbox": [
+            27,
+            5,
+            165,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 183
+        },
+        {
+          "index": 3,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/review/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20273,
+          "bbox": [
+            29,
+            5,
+            162,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 141
+        },
+        {
+          "index": 4,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/review/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19796,
+          "bbox": [
+            30,
+            5,
+            162,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 148
+        },
+        {
+          "index": 5,
+          "file": "/Users/gauravsingh/Desktop/manga-factory-pipeline/manga_pipeline/assets/inkbit_pet_run/frames/review/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20356,
+          "bbox": [
+            26,
+            5,
+            165,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 146
+        }
+      ]
+    }
+  ]
+}

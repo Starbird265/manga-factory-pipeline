@@ -12,10 +12,19 @@ Your manga downloader now has:
 
 ## 🎯 How to Use
 
-### Simple: Run Your Download
+### Recommended: Launch Desktop GUI
 
 ```bash
-cd /Users/gauravsingh/Desktop/manga_factory_project
+cd /Users/gauravsingh/Desktop/manga-factory-pipeline
+python manga_pipeline/manga_factory_gui.py
+```
+
+*(Note: On macOS, if the GUI fails to launch from an automated environment, simply run the command directly in your standard Terminal app).*
+
+### Alternative: Run CLI Download
+
+```bash
+cd /Users/gauravsingh/Desktop/manga-factory-pipeline
 python manga_pipeline/download_and_process.py
 ```
 
@@ -318,7 +327,12 @@ The system will:
 
 ## 📞 Quick Reference
 
-### Run Download
+### Launch Desktop GUI (Recommended)
+```bash
+python manga_pipeline/manga_factory_gui.py
+```
+
+### Run Download (CLI)
 ```bash
 python manga_pipeline/download_and_process.py
 ```

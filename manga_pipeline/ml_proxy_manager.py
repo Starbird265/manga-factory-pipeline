@@ -19,9 +19,11 @@ class MLProxyManager:
     """
     def __init__(self, data_dir: str = '.', config_file: str = 'proxy_stats.json'):
         self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.config_path = self.data_dir / config_file
         self.proxies: Dict[str, Dict] = {}
-        self._lock = threading.Lock()
+        # add_proxy() persists while holding the lock, so this must be re-entrant.
+        self._lock = threading.RLock()
         
         # Load or initialize
         self._load_stats()
@@ -43,8 +45,10 @@ class MLProxyManager:
     def _save_stats(self):
         with self._lock:
             try:
-                with open(self.config_path, 'w') as f:
+                temp_path = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
+                with open(temp_path, 'w') as f:
                     json.dump(self.proxies, f, indent=2)
+                temp_path.replace(self.config_path)
             except Exception as e:
                 logger.error(f"Failed to save proxy stats: {e}")
 
@@ -160,10 +164,15 @@ class MLProxyManager:
             else:
                 stats['failures'] += 1
                 
-                # Increase ban times aggressively for repeated failures or cloudflare blocks
+                # A connection failure from an untested public proxy is enough
+                # evidence to set it aside. This lets UCB explore another
+                # candidate immediately instead of repeatedly timing out.
                 if cloudflare_blocked:
                     logger.warning(f"Proxy {proxy} blocked by Cloudflare. Banning for 1 hour.")
                     stats['ban_until'] = time.time() + 3600
+                elif stats['successes'] == 0:
+                    logger.warning(f"Proxy {proxy} failed its first request. Banning for 10 minutes.")
+                    stats['ban_until'] = time.time() + 600
                 elif stats['success_rate'] < 0.2 and stats['total_requests'] > 5:
                     logger.warning(f"Proxy {proxy} is too unreliable. Banning for 10 minutes.")
                     stats['ban_until'] = time.time() + 600

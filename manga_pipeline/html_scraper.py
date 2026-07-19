@@ -6,6 +6,7 @@ Used as Layer 1 (no browser) in the generic download fallback.
 
 import logging
 import requests
+import re
 from typing import List, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -38,7 +39,7 @@ _HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": "gzip, deflate",
     "DNT": "1",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
@@ -51,10 +52,12 @@ class HTMLScraper:
     Works best on static or SSR manga sites.
     """
 
-    def __init__(self, db: Optional[WebsiteDatabase] = None):
+    def __init__(self, db: Optional[WebsiteDatabase] = None, proxies: Optional[dict] = None):
         self.db = db or WebsiteDatabase()
         self.session = requests.Session()
         self.session.headers.update(_HEADERS)
+        if proxies:
+            self.session.proxies.update(proxies)
 
     def extract_image_urls(self, url: str, timeout: int = 30) -> List[str]:
         """
@@ -80,7 +83,19 @@ class HTMLScraper:
             resp.raise_for_status()
 
             soup = BeautifulSoup(resp.text, "html.parser")
-            selectors = self.db.get_selectors(url)
+            site_config = self.db.get_site_config(url)
+
+            api_images = self._extract_chapter_api_images(
+                url=url,
+                html=resp.text,
+                site_config=site_config,
+                timeout=timeout,
+            )
+            if api_images:
+                logger.info(f"[HTML Scraper] Found {len(api_images)} images via chapter API")
+                return api_images
+
+            selectors = site_config.get("image_selectors", GENERIC_IMAGE_SELECTORS)
 
             image_urls: List[str] = []
             seen = set()
@@ -131,6 +146,73 @@ class HTMLScraper:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _extract_chapter_api_images(
+        self,
+        url: str,
+        html: str,
+        site_config: dict,
+        timeout: int,
+    ) -> List[str]:
+        """Extract chapter images from a configured JSON content endpoint."""
+        endpoint = site_config.get("chapter_content_endpoint")
+        if not endpoint:
+            return []
+
+        chapter_id = self._extract_chapter_id(html, site_config)
+        if not chapter_id:
+            logger.debug("[HTML Scraper] Chapter API configured but no chapter id found")
+            return []
+
+        api_url = urljoin(url, endpoint.format(chapter_id=chapter_id))
+
+        try:
+            resp = self.session.get(
+                api_url,
+                timeout=timeout,
+                headers={
+                    "Accept": "application/json, text/plain, */*",
+                    "Referer": url,
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            )
+            if not resp.ok:
+                logger.warning(f"[HTML Scraper] Chapter API returned HTTP {resp.status_code}: {api_url}")
+                return []
+
+            payload = resp.json()
+            if payload.get("success") is False:
+                logger.warning(f"[HTML Scraper] Chapter API returned success=false: {api_url}")
+                return []
+
+            images = payload.get(site_config.get("chapter_images_key", "images"), [])
+            if not isinstance(images, list):
+                return []
+
+            image_urls = []
+            seen = set()
+            for src in images:
+                if not isinstance(src, str) or not src.strip():
+                    continue
+                abs_src = urljoin(url, src.strip())
+                if abs_src in seen:
+                    continue
+                if self._is_valid_manga_image(abs_src):
+                    image_urls.append(abs_src)
+                    seen.add(abs_src)
+
+            return image_urls
+        except Exception as e:
+            logger.debug(f"[HTML Scraper] Chapter API extraction failed: {e}")
+            return []
+
+    @staticmethod
+    def _extract_chapter_id(html: str, site_config: dict) -> Optional[str]:
+        for pattern in site_config.get("chapter_id_patterns", []):
+            match = re.search(pattern, html)
+            if match:
+                return match.group(1)
+        return None
 
     @staticmethod
     def _pick_src(img_tag) -> Optional[str]:

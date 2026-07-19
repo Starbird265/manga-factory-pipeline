@@ -16,9 +16,10 @@ class SmartPipelineManager:
     """
     def __init__(self, data_dir: str = '.', config_file: str = 'pipeline_stats.json'):
         self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.config_path = self.data_dir / config_file
         self.domain_stats: Dict[str, Dict] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         
         self._load_stats()
 
@@ -35,8 +36,10 @@ class SmartPipelineManager:
     def _save_stats(self):
         with self._lock:
             try:
-                with open(self.config_path, 'w') as f:
+                temp_path = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
+                with open(temp_path, 'w') as f:
                     json.dump(self.domain_stats, f, indent=2)
+                temp_path.replace(self.config_path)
             except Exception as e:
                 logger.error(f"Failed to save pipeline stats: {e}")
 
@@ -70,6 +73,11 @@ class SmartPipelineManager:
         """
         Learn from a scraping attempt.
         """
+        # The unified engine uses the shorter internal name while older paths
+        # use the package name. Store one canonical key so its learned result
+        # is actually reused on the next chapter.
+        if scraper_name == 'undetected_chrome':
+            scraper_name = 'undetected_chromedriver'
         domain = self._get_domain(url)
         with self._lock:
             if domain not in self.domain_stats:

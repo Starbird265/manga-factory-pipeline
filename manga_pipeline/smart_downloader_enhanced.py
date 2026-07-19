@@ -829,7 +829,7 @@ class EnhancedSmartDownloader:
         
         # Exclude common non-manga images
         exclude_keywords = [
-            'logo', 'avatar', 'icon', 'banner', 'ad', 'button', 'background',
+            'logo', 'avatar', 'icon', 'banner', 'button', 'background',
             'zeropixel', 'pixel', 'tracking', 'spacer', 'transparent'
         ]
         if any(keyword in url_lower for keyword in exclude_keywords):

@@ -6,6 +6,7 @@ Cookies auto-expire after 7 days.
 """
 
 import json
+import re
 import time
 import logging
 from pathlib import Path
@@ -24,9 +25,13 @@ class CookieManager:
     Cookies are stored as JSON files in ~/.manga_cookies/.
     """
 
-    def __init__(self, cookie_dir: Optional[Path] = None):
-        self.cookie_dir = cookie_dir or COOKIE_DIR
+    def __init__(self, cookie_dir: Optional[Path] = None, profile: str = "default"):
+        self.profile = self._safe_profile(profile)
+        base_dir = Path(cookie_dir) if cookie_dir else COOKIE_DIR
+        self.cookie_dir = base_dir if self.profile == "default" else base_dir / self.profile
         self.cookie_dir.mkdir(parents=True, exist_ok=True)
+        self.browser_profile_dir = Path.home() / ".manga_browser_profiles" / self.profile
+        self.browser_profile_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------ Playwright
     def save_cookies_playwright(self, page, url: str) -> bool:
@@ -35,7 +40,7 @@ class CookieManager:
             domain = self._domain(url)
             cookies = page.context.cookies()
             self._write(domain, cookies)
-            logger.info(f"[Cookies] Saved {len(cookies)} cookies for {domain}")
+            logger.info(f"[Cookies:{self.profile}] Saved {len(cookies)} cookies for {domain}")
             return True
         except Exception as e:
             logger.warning(f"[Cookies] Failed to save Playwright cookies: {e}")
@@ -49,7 +54,7 @@ class CookieManager:
             if not cookies:
                 return False
             page.context.add_cookies(cookies)
-            logger.info(f"[Cookies] Loaded {len(cookies)} cookies for {domain}")
+            logger.info(f"[Cookies:{self.profile}] Loaded {len(cookies)} cookies for {domain}")
             return True
         except Exception as e:
             logger.warning(f"[Cookies] Failed to load Playwright cookies: {e}")
@@ -62,7 +67,7 @@ class CookieManager:
             domain = self._domain(url)
             cookies = driver.get_cookies()
             self._write(domain, cookies)
-            logger.info(f"[Cookies] Saved {len(cookies)} Selenium cookies for {domain}")
+            logger.info(f"[Cookies:{self.profile}] Saved {len(cookies)} Selenium cookies for {domain}")
             return True
         except Exception as e:
             logger.warning(f"[Cookies] Failed to save Selenium cookies: {e}")
@@ -89,7 +94,7 @@ class CookieManager:
                     driver.add_cookie(clean)
                 except Exception:
                     pass
-            logger.info(f"[Cookies] Loaded {len(cookies)} Selenium cookies for {domain}")
+            logger.info(f"[Cookies:{self.profile}] Loaded {len(cookies)} Selenium cookies for {domain}")
             return True
         except Exception as e:
             logger.warning(f"[Cookies] Failed to load Selenium cookies: {e}")
@@ -113,6 +118,11 @@ class CookieManager:
     def _path(self, domain: str) -> Path:
         safe_name = domain.replace(".", "_").replace("/", "_")
         return self.cookie_dir / f"{safe_name}.json"
+
+    @staticmethod
+    def _safe_profile(profile: str) -> str:
+        value = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(profile or "default")).strip("._")
+        return value or "default"
 
     def _domain(self, url: str) -> str:
         try:

@@ -136,13 +136,24 @@ class UnifiedBypassEngine:
         website_db: Optional[Any] = None,
         cookie_manager: Optional[Any] = None,
         headless: bool = True,
+        enable_ad_blocker: bool = True,
+        enable_human_behavior: bool = True,
+        profile_name: str = "default",
+        force_headful: bool = False,
+        browser_only: bool = False,
     ):
         self.proxy_mgr = proxy_manager
         self.pipeline_mgr = pipeline_manager
         self.website_db = website_db or (WebsiteDatabase() if WebsiteDatabase else None)
-        self.cookie_mgr = cookie_manager or (CookieManager() if CookieManager else None)
-        self.headless = headless
-        self.ad_blocker = AdBlocker(max_iterations=5) if AdBlocker else None
+        self.profile_name = profile_name or "default"
+        self.cookie_mgr = cookie_manager or (
+            CookieManager(profile=self.profile_name) if CookieManager else None
+        )
+        self.force_headful = bool(force_headful)
+        self.browser_only = bool(browser_only)
+        self.headless = False if self.force_headful else headless
+        self.enable_human_behavior = enable_human_behavior
+        self.ad_blocker = AdBlocker(max_iterations=5) if (enable_ad_blocker and AdBlocker) else None
 
     # ─── Public API ──────────────────────────────────────────────────
 
@@ -154,9 +165,10 @@ class UnifiedBypassEngine:
         1. Check website_database for known best_method + cloudflare status
         2. Check SmartPipelineManager for learned history
         3. Build a smart chain: skip methods known to fail (e.g. requests on CF sites)
-        4. Try DIRECT first (no proxy) — free proxies make things worse
-        5. If direct fails, retry the best method WITH proxy
-        6. Each method is tried at most once direct + once with proxy
+        4. Use the ML-selected proxy for every retrieval when a proxy pool exists
+        5. Fall back to direct only when the proxy pool is unavailable
+        6. Each scraper method is attempted once, and its result trains the
+           site-memory and proxy UCB models
         """
         domain = self._get_domain(url)
         logger.info(f"🚀 [UnifiedBypass] Starting smart chain for {domain}")
@@ -200,6 +212,11 @@ class UnifiedBypassEngine:
         preferred = pipeline_best or db_best_method
 
         chain = list(self.ESCALATION_CHAIN)
+        if self.browser_only:
+            chain = ['undetected_chrome', 'playwright']
+            logger.info(
+                f"  Browser account mode: profile={self.profile_name}, headful={not self.headless}"
+            )
 
         # Skip methods known to fail for this site type
         skip_reasons = {}
@@ -227,7 +244,7 @@ class UnifiedBypassEngine:
 
         logger.info(f"  📝 Final chain: {chain}")
 
-        # ── Step 4: Execute chain (direct first, then proxy) ─────────
+        # ── Step 4: Execute chain (ML proxy first, direct only as a failsafe) ─
         result = {
             'success': False,
             'image_urls': [],
@@ -236,50 +253,74 @@ class UnifiedBypassEngine:
         }
 
         for method_name in chain:
-            # Phase A: Try DIRECT (no proxy) — usually works better than free proxies
-            logger.info(f"  ▶ [{method_name}] Trying direct (no proxy)...")
-            t0 = time.time()
-            attempt_result = self._try_method(method_name, url, proxy=None)
-            duration = time.time() - t0
+            # Public proxies fail frequently. The UCB model scores each result,
+            # then supplies a different candidate for the next proxy-only retry.
+            # No direct attempt is made while a proxy pool exists.
+            proxy_attempt_limit = 3 if self.proxy_mgr else 1
+            attempted_proxies = set()
+            attempt_result = {'success': False, 'image_urls': [], 'cloudflare': False}
 
-            self._record_attempt(result, method_name, None, attempt_result, duration, url)
-
-            if attempt_result['success'] and attempt_result.get('image_urls'):
-                result['success'] = True
-                result['image_urls'] = attempt_result['image_urls']
-                result['method'] = method_name
-                logger.info(
-                    f"  ✅ SUCCESS with {method_name} (direct) — "
-                    f"{len(result['image_urls'])} images found"
-                )
-                return result
-
-            # Phase B: If direct failed and we have proxies, retry WITH proxy
-            if self.proxy_mgr and not attempt_result.get('cloudflare', False):
-                # Only use proxy if it wasn't a Cloudflare block (proxies make CF worse)
+            for proxy_attempt in range(proxy_attempt_limit):
                 proxy = None
-                try:
-                    proxy = self.proxy_mgr.get_best_proxy()
-                except Exception:
-                    pass
+                if self.proxy_mgr:
+                    try:
+                        proxy = self.proxy_mgr.get_best_proxy()
+                    except Exception as exc:
+                        logger.debug(f"  ML proxy selection failed: {exc}")
 
+                if proxy and proxy in attempted_proxies:
+                    logger.warning("  ML proxy selector repeated a failed proxy; moving to next scraper.")
+                    break
                 if proxy:
-                    logger.info(f"  ▶ [{method_name}] Retrying with proxy {proxy}...")
-                    t0 = time.time()
-                    attempt_result = self._try_method(method_name, url, proxy)
-                    duration = time.time() - t0
+                    attempted_proxies.add(proxy)
+                    logger.info(
+                        f"  ▶ [{method_name}] ML proxy {proxy} "
+                        f"({proxy_attempt + 1}/{proxy_attempt_limit})..."
+                    )
+                else:
+                    logger.warning(
+                        f"  ▶ [{method_name}] No usable proxy is available; using a direct fallback."
+                    )
 
-                    self._record_attempt(result, method_name, proxy, attempt_result, duration, url)
+                t0 = time.time()
+                attempt_result = self._try_method(method_name, url, proxy=proxy)
+                duration = time.time() - t0
+                self._record_attempt(result, method_name, proxy, attempt_result, duration, url)
 
-                    if attempt_result['success'] and attempt_result.get('image_urls'):
-                        result['success'] = True
-                        result['image_urls'] = attempt_result['image_urls']
-                        result['method'] = method_name
-                        logger.info(
-                            f"  ✅ SUCCESS with {method_name} (proxy) — "
-                            f"{len(result['image_urls'])} images found"
-                        )
-                        return result
+                if attempt_result['success'] and attempt_result.get('image_urls'):
+                    result['success'] = True
+                    result['image_urls'] = attempt_result['image_urls']
+                    result['method'] = method_name
+                    logger.info(
+                        f"  ✅ SUCCESS with {method_name} "
+                        f"({'proxy' if proxy else 'direct fallback'}) — "
+                        f"{len(result['image_urls'])} images found"
+                    )
+                    return result
+
+                if not proxy:
+                    break
+
+            # A free proxy pool can be entirely stale. Keep the proxy-first
+            # policy, but do not abandon a readable chapter after several ML
+            # candidates have demonstrably failed.
+            if method_name == 'requests' and attempted_proxies:
+                logger.warning(
+                    "  All selected proxies failed for requests; trying one direct emergency fallback."
+                )
+                t0 = time.time()
+                attempt_result = self._try_method(method_name, url, proxy=None)
+                duration = time.time() - t0
+                self._record_attempt(result, method_name, None, attempt_result, duration, url)
+                if attempt_result['success'] and attempt_result.get('image_urls'):
+                    result['success'] = True
+                    result['image_urls'] = attempt_result['image_urls']
+                    result['method'] = method_name
+                    logger.info(
+                        f"  ✅ SUCCESS with {method_name} (direct emergency fallback) — "
+                        f"{len(result['image_urls'])} images found"
+                    )
+                    return result
 
             logger.warning(f"  ❌ {method_name} failed (CF={attempt_result.get('cloudflare', False)})")
             time.sleep(random.uniform(0.5, 1.5))
@@ -351,6 +392,20 @@ class UnifiedBypassEngine:
             return result
 
         try:
+            # Site-aware HTML extraction is both more accurate and cheaper
+            # than launching a browser. It uses the same selected proxy.
+            if HTMLScraper and self.website_db:
+                proxy_map = {'http': proxy, 'https': proxy} if proxy else None
+                scraper = HTMLScraper(self.website_db, proxies=proxy_map)
+                try:
+                    images = scraper.extract_image_urls(url, timeout=10)
+                finally:
+                    scraper.close()
+                if len(images) >= 3:
+                    result['success'] = True
+                    result['image_urls'] = images
+                    return result
+
             session = _requests.Session()
             session.headers.update({
                 'User-Agent': random.choice(self.DESKTOP_UAS),
@@ -360,26 +415,16 @@ class UnifiedBypassEngine:
             if proxy:
                 session.proxies = {'http': proxy, 'https': proxy}
 
-            # Load cookies if available
-            resp = session.get(url, timeout=15, allow_redirects=True)
+            resp = session.get(url, timeout=10, allow_redirects=True)
             if resp.status_code in (403, 503):
                 result['cloudflare'] = True
                 return result
             resp.raise_for_status()
 
-            # Try ML Site Learner for smart extraction
+            # Fallback to ML Site Learner for unknown/static DOMs.
             if MLSiteLearner:
                 images = MLSiteLearner.analyze_dom_for_manga_images(resp.text, url)
-                if images:
-                    result['success'] = True
-                    result['image_urls'] = images
-                    return result
-
-            # Fallback to HTMLScraper
-            if HTMLScraper and self.website_db:
-                scraper = HTMLScraper(self.website_db)
-                images = scraper.extract_image_urls(url)
-                if images:
+                if len(images) >= 3:
                     result['success'] = True
                     result['image_urls'] = images
                     return result
@@ -409,6 +454,7 @@ class UnifiedBypassEngine:
 
         pw = None
         browser = None
+        context = None
         try:
             pw = sync_playwright().start()
 
@@ -426,12 +472,10 @@ class UnifiedBypassEngine:
             if proxy:
                 browser_kwargs['proxy'] = {'server': proxy}
 
-            browser = pw.chromium.launch(**browser_kwargs)
-
             # Context setup
             if mobile:
                 ua = random.choice(self.MOBILE_UAS)
-                context = browser.new_context(
+                context_kwargs = dict(
                     user_agent=ua,
                     viewport={'width': 390, 'height': 844},
                     device_scale_factor=3,
@@ -440,7 +484,7 @@ class UnifiedBypassEngine:
                 )
             else:
                 ua = random.choice(self.DESKTOP_UAS)
-                context = browser.new_context(
+                context_kwargs = dict(
                     user_agent=ua,
                     viewport={
                         'width': random.randint(1280, 1920),
@@ -448,7 +492,17 @@ class UnifiedBypassEngine:
                     },
                 )
 
-            page = context.new_page()
+            if self.profile_name != "default" and self.cookie_mgr:
+                context = pw.chromium.launch_persistent_context(
+                    user_data_dir=str(self.cookie_mgr.browser_profile_dir),
+                    **browser_kwargs,
+                    **context_kwargs,
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+            else:
+                browser = pw.chromium.launch(**browser_kwargs)
+                context = browser.new_context(**context_kwargs)
+                page = context.new_page()
 
             # Apply stealth
             if stealth_sync:
@@ -467,7 +521,7 @@ class UnifiedBypassEngine:
             page.goto(url, timeout=60000, wait_until='domcontentloaded')
 
             # Simulate human behavior
-            if StealthConfig:
+            if StealthConfig and self.enable_human_behavior:
                 StealthConfig.simulate_human_behavior(page)
             time.sleep(random.uniform(1.0, 2.0))
 
@@ -518,6 +572,8 @@ class UnifiedBypassEngine:
             logger.debug(f"    Playwright {'mobile' if mobile else 'desktop'} error: {e}")
         finally:
             try:
+                if context:
+                    context.close()
                 if browser:
                     browser.close()
                 if pw:
@@ -647,7 +703,7 @@ class UnifiedBypassEngine:
                 pass
 
         # For CF sites, MUST run headful — headless always fails
-        use_headless = self.headless and not site_has_cf
+        use_headless = self.headless and not site_has_cf and not self.force_headful
         if site_has_cf and self.headless:
             logger.info("    🖥️ CF site detected — forcing headful (visible) mode")
 
@@ -662,6 +718,9 @@ class UnifiedBypassEngine:
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--disable-blink-features=AutomationControlled')
+            if self.cookie_mgr and self.profile_name != "default":
+                options.add_argument(f'--user-data-dir={self.cookie_mgr.browser_profile_dir}')
+                options.add_argument('--profile-directory=Default')
 
             if site_has_cf:
                 # CF sites: DON'T set custom user-agent — UC's whole point is
@@ -715,7 +774,8 @@ class UnifiedBypassEngine:
                 except Exception:
                     # Phase 2: CF didn't auto-resolve — click the turnstile naturally
                     logger.info("    🖱️ CF still active — attempting human-like turnstile click...")
-                    self._human_click_cf_turnstile(driver)
+                    if self.enable_human_behavior:
+                        self._human_click_cf_turnstile(driver)
 
                     # Phase 3: Wait for content after clicking
                     logger.info("    ⏳ Waiting for page content (up to 35s)...")
@@ -754,14 +814,14 @@ class UnifiedBypassEngine:
                     logger.info("    🖱️ Clicking page body to trigger ad popup...")
                     time.sleep(random.uniform(0.5, 1.0))
 
-                    if driver_lock:
+                    if self.enable_human_behavior and driver_lock:
                         with driver_lock:
                             ActionChains(driver) \
                                 .move_by_offset(random.randint(200, 500), random.randint(300, 500)) \
                                 .pause(random.uniform(0.1, 0.3)) \
                                 .click() \
                                 .perform()
-                    else:
+                    elif self.enable_human_behavior:
                         ActionChains(driver) \
                             .move_by_offset(random.randint(200, 500), random.randint(300, 500)) \
                             .pause(random.uniform(0.1, 0.3)) \
@@ -793,31 +853,37 @@ class UnifiedBypassEngine:
                 # Human-like scrolling to trigger lazy loading
                 try:
                     from human_behavior import HumanBehavior
-                    human = HumanBehavior(min_delay=0.2, max_delay=0.8, movement_speed='medium')
-                    logger.info("    📜 Human-like scrolling...")
+                    if self.enable_human_behavior:
+                        human = HumanBehavior(min_delay=0.2, max_delay=0.8, movement_speed='medium')
+                        logger.info("    📜 Human-like scrolling...")
 
-                    human.read_pause(1.0, 2.5)
-                    for _ in range(random.randint(3, 5)):
-                        if driver_lock:
-                            with driver_lock:
+                        human.read_pause(1.0, 2.5)
+                        for _ in range(random.randint(3, 5)):
+                            if driver_lock:
+                                with driver_lock:
+                                    human.human_scroll(driver, 'down',
+                                                       amount=random.randint(200, 600), smooth=True)
+                            else:
                                 human.human_scroll(driver, 'down',
                                                    amount=random.randint(200, 600), smooth=True)
-                        else:
-                            human.human_scroll(driver, 'down',
-                                               amount=random.randint(200, 600), smooth=True)
-                        time.sleep(random.uniform(0.5, 1.5))
+                            time.sleep(random.uniform(0.5, 1.5))
 
-                    # Scroll to bottom
-                    human.human_scroll(driver, 'down',
-                                       amount=random.randint(1500, 3000), smooth=True)
-                    human.read_pause(1.0, 2.0)
-
-                    # Scroll back to top then down again
-                    driver.execute_script("window.scrollTo({top: 0, behavior: 'smooth'})")
-                    time.sleep(random.uniform(1.0, 2.0))
-                    human.human_scroll(driver, 'down',
-                                       amount=random.randint(1500, 3000), smooth=True)
-                    logger.info("    ✅ Scrolling complete")
+                        human.human_scroll(driver, 'down',
+                                           amount=random.randint(1500, 3000), smooth=True)
+                        human.read_pause(1.0, 2.0)
+                        driver.execute_script("window.scrollTo({top: 0, behavior: 'smooth'})")
+                        time.sleep(random.uniform(1.0, 2.0))
+                        human.human_scroll(driver, 'down',
+                                           amount=random.randint(1500, 3000), smooth=True)
+                        logger.info("    ✅ Scrolling complete")
+                    else:
+                        logger.info("    📜 Human behavior disabled — using basic scrolling")
+                        driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
+                        time.sleep(2)
+                        driver.execute_script("window.scrollTo(0, 0)")
+                        time.sleep(1)
+                        driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
+                        time.sleep(2)
                 except ImportError:
                     # Fallback basic scrolling
                     logger.info("    📜 Basic scrolling...")
@@ -1045,7 +1111,7 @@ class UnifiedBypassEngine:
             return False
         url_lower = url.lower()
         exclude = [
-            'logo', 'avatar', 'icon', 'banner', 'ad', 'button', 'background',
+            'logo', 'avatar', 'icon', 'banner', 'button', 'background',
             'zeropixel', 'pixel', 'tracking', 'spacer', 'transparent',
             'gravatar', 'captcha', '/ads/',
         ]

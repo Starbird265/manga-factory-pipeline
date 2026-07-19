@@ -61,6 +61,7 @@ class AIScriptGenerator:
             self.model_name = model_name
 
         self.model = None
+        self.ollama_available = False
         
         # Performance settings (Gemini specific)
         self.generation_config = {
@@ -139,9 +140,9 @@ class AIScriptGenerator:
         else:
             # Ollama initialization
             self.logger.info(f"✅ Ollama Provider initialized with model: {self.model_name}")
-            # simple check if ollama is reachable?
             try:
                 urllib.request.urlopen("http://localhost:11434/api/tags", timeout=1)
+                self.ollama_available = True
             except Exception as e:
                 self.logger.warning(f"Ollama server might not be running: {e}")
 
@@ -149,8 +150,7 @@ class AIScriptGenerator:
         """Check if AI script generation is available"""
         if self.provider == "gemini":
             return self.model is not None
-        else:
-            return True # Assume Ollama is always conceptually "available" if configured
+        return self.ollama_available
     
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count from text (rough approximation)"""

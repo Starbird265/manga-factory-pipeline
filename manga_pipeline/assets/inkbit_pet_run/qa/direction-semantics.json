@@ -1,0 +1,23 @@
+{
+  "pet": "inkbit",
+  "reviewers": [
+    "019f503f-cddb-7f01-9a23-a3da3e110c07",
+    "019f503f-ce3c-7a33-ad70-94afff967ee6",
+    "019f503f-ce90-75e1-8221-b65127504300"
+  ],
+  "horizontal": {
+    "pairs": 7,
+    "confirmed": 6,
+    "threshold": 6,
+    "status": "accepted",
+    "note": "All reviewers identified the intended left/right gaze in six pairs. The final pair is intentionally subtle and did not pass the consensus check."
+  },
+  "vertical": {
+    "pairs": 7,
+    "confirmed": 7,
+    "threshold": 6,
+    "status": "accepted",
+    "note": "The intended up/down gaze passed a majority check in every pair."
+  },
+  "result": "The 16-direction look rows meet the usability threshold for the runtime atlas."
+}

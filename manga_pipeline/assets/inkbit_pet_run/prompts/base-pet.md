@@ -1,0 +1,7 @@
+Create one clean full-body reference sprite for Codex pet Inkbit.
+
+Pet identity: Pixel-art manga production companion: a tiny whole-body ink-and-paper sprite, teal ink body with coral scarf and amber page-tab accent. Friendly rounded squarish silhouette, two clear amber eyes, one small attached page tab, no text or logos. Feels curious, focused, and mischievously helpful. It belongs beside a comic production queue, reacts to downloading, stitching, OCR, review, success, and failure. Must remain readable at tiny UI size..
+Style: Pet-safe sprite: compact full-body mascot, readable in a 192x208 cell, clear silhouette, simple face, stable palette/materials, and crisp edges for chroma-key extraction. Style `pixel`: Pixel-art-adjacent digital mascot with a chunky silhouette, simple dark outline, limited palette, flat cel shading, and visible stepped edges. User style notes: 16-bit inspired pixel art, crisp dark outline, palette limited to deep charcoal, teal, coral, amber and cream; no gradients; no scenery; no text; compact chunky silhouette; flat #ff00ff chroma-key background.
+
+
+Place a single centered pose on a perfectly flat pure user-selected #FF00FF chroma-key background. Keep the full pet visible, compact, readable at 192x208, and easy to animate. Preserve approved reference identity cues. No scenery, text, borders, checkerboard transparency, shadows, glows, detached effects, or extra props. Keep #FF00FF and close colors out of the pet, props, highlights, and effects.
