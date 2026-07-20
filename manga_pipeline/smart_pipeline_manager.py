@@ -5,13 +5,14 @@ import threading
 from pathlib import Path
 from typing import Dict, Any
 from urllib.parse import urlparse
+from security_manager import SecurityManager
 
 logger = logging.getLogger(__name__)
 
 class SmartPipelineManager:
     """
     Learns and optimizes end-to-end processing per domain.
-    Caches scraping strategies (requests vs playwright vs UC) and processing heuristics 
+    Caches scraping strategies (requests vs playwright vs UC) and processing heuristics
     (skip_denoise, fast_ocr) to make the pipeline faster with every download.
     """
     def __init__(self, data_dir: str = '.', config_file: str = 'pipeline_stats.json'):
@@ -20,15 +21,37 @@ class SmartPipelineManager:
         self.config_path = self.data_dir / config_file
         self.domain_stats: Dict[str, Dict] = {}
         self._lock = threading.RLock()
-        
+        self.security_mgr = SecurityManager(data_dir)
+
         self._load_stats()
 
     def _load_stats(self):
         if self.config_path.exists():
             try:
                 with open(self.config_path, 'r') as f:
-                    self.domain_stats = json.load(f)
-                logger.debug(f"Loaded pipeline intelligence for {len(self.domain_stats)} domains.")
+                    data = json.load(f)
+
+                if self.security_mgr.verify_data(data):
+                    self.domain_stats = {k: v for k, v in data.items() if k != '_signature'}
+                    logger.debug(f"Loaded secured pipeline intelligence for {len(self.domain_stats)} domains.")
+                else:
+                    # Versions before signed persistence stored plain local
+                    # JSON. Treat that as a legacy cache, preserve the learned
+                    # methods, then immediately re-sign it with the current
+                    # key. Throwing it away makes every launch look like the
+                    # first run and forces the full scraper chain again.
+                    self.domain_stats = {
+                        key: value
+                        for key, value in data.items()
+                        if key != '_signature' and isinstance(value, dict)
+                    }
+                    if self.domain_stats:
+                        logger.warning(
+                            "Pipeline memory has no valid signature; importing and re-signing the local cache."
+                        )
+                        self._save_stats()
+                    else:
+                        logger.warning("Pipeline memory is empty or malformed; starting fresh.")
             except Exception as e:
                 logger.error(f"Failed to load pipeline stats: {e}")
                 self.domain_stats = {}
@@ -37,8 +60,9 @@ class SmartPipelineManager:
         with self._lock:
             try:
                 temp_path = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
+                signed_data = self.security_mgr.sign_data(self.domain_stats)
                 with open(temp_path, 'w') as f:
-                    json.dump(self.domain_stats, f, indent=2)
+                    json.dump(signed_data, f, indent=2)
                 temp_path.replace(self.config_path)
             except Exception as e:
                 logger.error(f"Failed to save pipeline stats: {e}")
@@ -60,9 +84,15 @@ class SmartPipelineManager:
         domain = self._get_domain(url)
         with self._lock:
             stats = self.domain_stats.get(domain, {})
-            
+
+        best_scraper = stats.get('best_scraper')
+        # Older cache files used the library name; the unified runner uses the
+        # short dispatch key. Normalize it before the engine builds its chain.
+        if best_scraper == 'undetected_chromedriver':
+            best_scraper = 'undetected_chrome'
+
         return {
-            'best_scraper': stats.get('best_scraper', 'requests'),  # Try fastest first
+            'best_scraper': best_scraper,
             'delay_needed': stats.get('min_delay', 0.5), # Standard small delay
             'skip_denoise': stats.get('clean_images', False), # False means OpenCV is skipped for speed
             'fast_ocr': stats.get('fast_ocr', False), # Skip Tesseract PSM 6 heavy config
@@ -73,11 +103,10 @@ class SmartPipelineManager:
         """
         Learn from a scraping attempt.
         """
-        # The unified engine uses the shorter internal name while older paths
-        # use the package name. Store one canonical key so its learned result
-        # is actually reused on the next chapter.
-        if scraper_name == 'undetected_chrome':
-            scraper_name = 'undetected_chromedriver'
+        # Store the same method key used by UnifiedBypassEngine so the learned
+        # strategy can be moved to the front of its next attempt.
+        if scraper_name == 'undetected_chromedriver':
+            scraper_name = 'undetected_chrome'
         domain = self._get_domain(url)
         with self._lock:
             if domain not in self.domain_stats:
@@ -89,35 +118,37 @@ class SmartPipelineManager:
                     'clean_images': False,
                     'fast_ocr': False
                 }
-            
+
             stats = self.domain_stats[domain]
             stats['attempts'] += 1
-            
+
             if scraper_name not in stats['scrapers_tested']:
                 stats['scrapers_tested'][scraper_name] = {'successes': 0, 'failures': 0, 'avg_duration': 100.0}
-            
+
             scraper_stats = stats['scrapers_tested'][scraper_name]
-            
+
             if success:
                 stats['successes'] += 1
                 scraper_stats['successes'] += 1
                 # Exponential moving average of speed
                 alpha = 0.3
                 scraper_stats['avg_duration'] = (alpha * duration) + ((1 - alpha) * scraper_stats['avg_duration'])
-                
-                # If this was successful and fast, make it the preferred scraper
-                # Or if it bypassed cloudflare while others failed
+
+                # A successful scraper becomes the preference whenever the
+                # current preference has no proven win or has already failed.
+                # This avoids retrying requests on every chapter after a
+                # browser method has demonstrated that the site needs it.
                 current_best = stats.get('best_scraper')
-                
-                # Logic: If requests works, ALWAYS use requests (fastest). 
-                # If Playwright works but requests fails, use PW.
+                current_stats = stats.get('scrapers_tested', {}).get(current_best, {})
+                current_has_proven_win = (
+                    current_stats.get('successes', 0) > current_stats.get('failures', 0)
+                )
+
                 if scraper_name == 'requests':
                     stats['best_scraper'] = 'requests'
-                elif scraper_name == 'playwright' and current_best != 'requests':
-                    stats['best_scraper'] = 'playwright'
-                elif scraper_name == 'undetected_chromedriver' and current_best not in ['requests', 'playwright']:
-                    stats['best_scraper'] = 'undetected_chromedriver'
-                    
+                elif not current_has_proven_win:
+                    stats['best_scraper'] = scraper_name
+
             else:
                 scraper_stats['failures'] += 1
                 # If current best scraper failed heavily, demote it
@@ -125,8 +156,8 @@ class SmartPipelineManager:
                     if scraper_name == 'requests':
                         stats['best_scraper'] = 'playwright' # Escalate
                     elif scraper_name == 'playwright':
-                        stats['best_scraper'] = 'undetected_chromedriver' # Escalate
-                
+                        stats['best_scraper'] = 'undetected_chrome' # Escalate
+
                 # Add delay if Cloudflare tripped
                 if is_cloudflare:
                     stats['min_delay'] = min(stats.get('min_delay', 0.5) + 1.0, 10.0)
@@ -146,25 +177,25 @@ class SmartPipelineManager:
         with self._lock:
             if domain not in self.domain_stats:
                 return # Should have been created by scraper result
-                
+
             stats = self.domain_stats[domain]
-            
+
             # Update image quality metric
             current_hq_score = stats.get('_hq_streak', 0)
             if is_high_quality:
                 current_hq_score += 1
             else:
                 current_hq_score -= 1
-                
+
             stats['_hq_streak'] = max(-5, min(10, current_hq_score))
-            
+
             # If we have 3 high quality chapters in a row from this site, we can safely skip denoising
             stats['clean_images'] = (stats['_hq_streak'] > 2)
-            
+
             # Text density logic
             current_td = stats.get('avg_text_density', 0.5)
             stats['avg_text_density'] = (0.3 * text_density) + (0.7 * current_td)
-            
+
             # If text is very sparse, use fast OCR settings
             stats['fast_ocr'] = (stats['avg_text_density'] < 0.1)
 

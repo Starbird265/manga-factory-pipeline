@@ -60,6 +60,10 @@ manga_pipeline/*.log
 pipeline_stats.json
 proxy_stats.json
 manga_pipeline/proxy_stats.json
+ml_site_profiles.json
+
+# Local cache-signing keys (never commit)
+.secret_key
 
 # Script runtime data
 script/

@@ -883,6 +883,7 @@ class EnhancedMangaFactory:
         """
         self.logger.info(f"Starting chapter download from: {url}")
         self._current_download_url = url
+        self._last_scraper_method = None
 
         try:
             success = False
@@ -963,7 +964,7 @@ class EnhancedMangaFactory:
                     try:
                         self.pipeline_mgr.record_scraper_result(
                             url=url,
-                            scraper_name=source_hint,
+                            scraper_name=self._last_scraper_method or source_hint,
                             success=success,
                             duration=_duration,
                         )
@@ -3227,6 +3228,7 @@ class EnhancedMangaFactory:
                         )
                         count = self._download_images(image_urls, url)
                         if count == len(image_urls):
+                            self._last_scraper_method = 'requests'
                             return True
                         self.logger.warning(
                             f"[Generic L0] Downloaded only {count}/{len(image_urls)} valid images — continuing"
@@ -3254,6 +3256,7 @@ class EnhancedMangaFactory:
                 self.logger.info(f"[Generic L1] ✅ Found {len(image_urls)} images via HTML scraper")
                 count = self._download_images(image_urls, url)
                 if count == len(image_urls):
+                    self._last_scraper_method = 'requests'
                     return True
                 self.logger.warning(
                     f"[Generic L1] Downloaded only {count}/{len(image_urls)} valid images — trying browser layers"
@@ -3343,6 +3346,7 @@ class EnhancedMangaFactory:
                     self.logger.info(f"[Generic L2] ✅ Found {len(image_urls)} images via Playwright")
                     count = self._download_images(image_urls, page_url)
                     if count == len(image_urls):
+                        self._last_scraper_method = 'playwright'
                         return True
                 else:
                     self.logger.warning("[Generic L2] No images found with Playwright")
@@ -3411,6 +3415,7 @@ class EnhancedMangaFactory:
                 self.logger.info(f"[Generic L3] ✅ Found {len(image_urls)} images via UC")
                 count = self._download_images(image_urls, current_url)
                 if count == len(image_urls):
+                    self._last_scraper_method = 'undetected_chrome'
                     return True
             else:
                 self.logger.warning("[Generic L3] No images found with UC")
